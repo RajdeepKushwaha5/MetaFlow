@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+venv/
+*.egg
+
+# Environment
+.env
+.env.local
+
+# Node
+node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+docker-volume/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp/build artifacts
+memory.md
+test_payload.json
+*.tsbuildinfo
