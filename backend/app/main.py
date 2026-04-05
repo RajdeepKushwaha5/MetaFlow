@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
+import time
 import uuid
 from contextlib import asynccontextmanager
 
@@ -33,7 +36,6 @@ async def lifespan(app: FastAPI):
     try:
         _orchestrator = build_orchestrator()
     except Exception as exc:
-        import logging
         logging.error("Failed to build orchestrator: %s", exc)
         _orchestrator = None
     yield
@@ -88,6 +90,34 @@ async def chat(req: ChatRequest):
     thread_id = req.thread_id or str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
 
+    MAX_RETRIES = 4
+    BASE_DELAY = 5  # seconds
+
+    def _invoke_with_retry():
+        """Invoke the orchestrator with exponential backoff on 429 errors."""
+        for attempt in range(MAX_RETRIES):
+            try:
+                return _orchestrator.invoke(
+                    {"messages": [{"role": "user", "content": req.message}]},
+                    config=config,
+                )
+            except Exception as exc:
+                exc_str = str(exc)
+                if "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str:
+                    # Parse retry delay from error if available
+                    match = re.search(r"retryDelay.*?(\d+)", exc_str)
+                    delay = int(match.group(1)) + 2 if match else BASE_DELAY * (2 ** attempt)
+                    delay = min(delay, 60)
+                    if attempt < MAX_RETRIES - 1:
+                        logging.warning(
+                            "Rate limited (attempt %d/%d), retrying in %ds...",
+                            attempt + 1, MAX_RETRIES, delay,
+                        )
+                        time.sleep(delay)
+                        continue
+                raise
+        raise RuntimeError("Max retries exceeded for LLM request")
+
     async def event_stream():
         yield json.dumps({"type": "thread_id", "thread_id": thread_id})
         if _orchestrator is None:
@@ -95,10 +125,7 @@ async def chat(req: ChatRequest):
             yield json.dumps({"type": "done"})
             return
         try:
-            result = _orchestrator.invoke(
-                {"messages": [{"role": "user", "content": req.message}]},
-                config=config,
-            )
+            result = _invoke_with_retry()
             messages = result.get("messages", [])
             raw = messages[-1].content if messages else "No response generated."
             # Gemini may return content as a list of blocks

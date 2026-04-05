@@ -21,6 +21,7 @@ from app.agents.prompts import (
     DATA_QUALITY_PROMPT,
     DISCOVERY_PROMPT,
     GITHUB_PROMPT,
+    GOOGLE_PROMPT,
     GOVERNANCE_PROMPT,
     LINEAGE_PROMPT,
     SLACK_PROMPT,
@@ -82,6 +83,10 @@ SPECIALIST_CONFIGS: dict[str, dict] = {
     "slack_agent": {
         "mcp_tools": [],
         "prompt": SLACK_PROMPT,
+    },
+    "google_agent": {
+        "mcp_tools": [],
+        "prompt": GOOGLE_PROMPT,
     },
 }
 

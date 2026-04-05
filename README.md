@@ -2,7 +2,7 @@
 
 **Multi-MCP Agent Orchestration Platform for OpenMetadata**
 
-MetaFlow orchestrates OpenMetadata's MCP server **alongside GitHub and Slack** through 7 specialized AI agents, enabling cross-platform metadata workflows via natural language chat and pre-built playbooks.
+MetaFlow orchestrates OpenMetadata's MCP server **alongside GitHub, Slack, and Google Workspace** through 8 specialized AI agents, enabling cross-platform metadata workflows via natural language chat and pre-built playbooks.
 
 > Built for the [OpenMetadata Hackathon](https://github.com/open-metadata/OpenMetadata/issues/26645) — **Pick #2: Multi-MCP Agent Orchestrator** (Track T-01: MCP Ecosystem & AI Agents)
 
@@ -16,7 +16,7 @@ MetaFlow orchestrates OpenMetadata's MCP server **alongside GitHub and Slack** t
 │   ┌──────────────┐   ┌────────────────────────────────────────────┐ │
 │   │  Chat Panel   │   │           Playbook Runner                 │ │
 │   │  (free-form)  │   │  🎯 Impact  🔒 PII  🚨 DQ  🩺 Health     │ │
-│   │               │   │  📊 DQ Report & Notify  🛡️ PII & Track   │ │
+│   │               │   │  📊 DQ+Notify  🛡️ PII  📋 DQ+Sheet  📝 Doc│ │
 │   └──────┬───────┘   └──────────────┬───────────────────────────┘ │
 │          │          SSE Streaming    │                             │
 └──────────┼──────────────────────────┼─────────────────────────────┘
@@ -24,7 +24,7 @@ MetaFlow orchestrates OpenMetadata's MCP server **alongside GitHub and Slack** t
 ┌──────────┼──────────────────────────┼─────────────────────────────┐
 │          ▼       FastAPI Backend    ▼                             │
 │   ┌──────────────────────────────────────────────────────────┐   │
-│   │          LangGraph Supervisor Orchestrator (7 agents)     │   │
+│   │          LangGraph Supervisor Orchestrator (8 agents)     │   │
 │   │                                                           │   │
 │   │  ┌───────────┐ ┌──────────┐ ┌──────────────────────┐     │   │
 │   │  │ Discovery  │ │ Lineage  │ │     Curator          │     │   │
@@ -36,36 +36,44 @@ MetaFlow orchestrates OpenMetadata's MCP server **alongside GitHub and Slack** t
 │   │  │ RCA 🔬    │ │ tags 🏷️  │ │ Agent 🐙 │ │  Agent 💬│   │   │
 │   │  │ tests ✅  │ │ comply ⚖️│ │ issues   │ │  alerts  │   │   │
 │   │  └───────────┘ └──────────┘ └──────────┘ └──────────┘   │   │
+│   │  ┌──────────────────────────────────────────────────┐    │   │
+│   │  │        Google Agent 📄  (Sheets + Docs)          │    │   │
+│   │  └──────────────────────────────────────────────────┘    │   │
 │   └───────────┬────────────────────────┬───────────┬─────────┘   │
 │               │                        │           │             │
 └───────────────┼────────────────────────┼───────────┼─────────────┘
                 │                        │           │
-    ┌───────────▼──────────┐  ┌──────────▼──┐ ┌─────▼──────┐
-    │   OpenMetadata MCP   │  │  GitHub API  │ │ Slack API  │
-    │   (JSON-RPC 2.0)     │  │  (REST)      │ │ (Webhooks) │
-    │   11 MCP Tools       │  │  Issues      │ │ Messages   │
-    │   /mcp endpoint      │  │  Gists       │ │ Block Kit  │
-    └──────────────────────┘  └─────────────┘ └────────────┘
+    ┌───────────▼──────────┐  ┌──────────▼──┐ ┌─────▼──────┐ ┌─────▼──────┐
+    │   OpenMetadata MCP   │  │  GitHub API  │ │ Slack API  │ │ Google API │
+    │   (JSON-RPC 2.0)     │  │  (REST)      │ │ (Webhooks) │ │ (REST)     │
+    │   11 MCP Tools       │  │  Issues      │ │ Messages   │ │ Sheets     │
+    │   /mcp endpoint      │  │  Gists       │ │ Block Kit  │ │ Docs       │
+    └──────────────────────┘  └─────────────┘ └────────────┘ └────────────┘
 ```
 
 ## Why Multi-MCP?
 
 The hackathon challenge asks: *"Combine OpenMetadata MCP with GitHub MCP, Slack MCP for cross-platform workflows."*
 
-MetaFlow answers this by orchestrating **three platforms** through a single LangGraph supervisor:
+MetaFlow answers this by orchestrating **four platforms** through a single LangGraph supervisor:
 
 1. **OpenMetadata MCP** — Metadata discovery, lineage, governance, DQ testing (11 tools)
 2. **GitHub API** — Create issues, publish gist reports, search existing issues (3 tools)
 3. **Slack Webhooks** — Team notifications with rich Block Kit formatting (2 tools)
+4. **Google Workspace** — Sheets for tabular reports, Docs for narrative documents (3 tools)
 
-**Cross-platform workflow example:**
+**Cross-platform workflow examples:**
 > "Find failed DQ tests, create a GitHub issue, and notify Slack"
 >
 > → `data_quality_agent` scans via OM MCP → `github_agent` creates issue → `slack_agent` posts alert
 
+> "Audit metadata health, create a Google Sheet report, and alert the team"
+>
+> → `discovery_agent` audits → `google_agent` creates spreadsheet → `slack_agent` posts alert
+
 ## Features
 
-### 🤖 7 Specialist Agents (Multi-MCP)
+### 🤖 8 Specialist Agents (Multi-MCP)
 
 | Agent | Platform | Tools | Purpose |
 |-------|----------|-------|---------|
@@ -76,8 +84,9 @@ MetaFlow answers this by orchestrating **three platforms** through a single Lang
 | **Governance** | OpenMetadata MCP | `search_metadata`, `semantic_search`, `get_entity_details`, `patch_entity`, `create_glossary`, `create_glossary_term` | Compliance, PII tagging, glossaries |
 | **GitHub** | GitHub REST API | `create_github_issue`, `create_github_gist`, `search_github_issues` | Issue tracking, report publishing |
 | **Slack** | Slack Webhooks | `send_slack_notification`, `send_slack_alert` | Team alerts with severity formatting |
+| **Google** | Google Workspace | `create_google_sheet`, `create_google_doc`, `append_to_google_sheet` | Sheets reports, Doc publications |
 
-### 📋 6 Playbooks (4 Core + 2 Cross-Platform)
+### 📋 8 Playbooks (4 Core + 4 Cross-Platform)
 
 **Core Playbooks (OpenMetadata only):**
 - **🎯 Impact Radar** — Analyze blast radius of schema changes via lineage
@@ -85,9 +94,11 @@ MetaFlow answers this by orchestrating **three platforms** through a single Lang
 - **🚨 Data Quality Fire Drill** — Root cause analysis + downstream impact
 - **🩺 Metadata Health Doctor** — Audit and auto-fix metadata gaps
 
-**Cross-Platform Playbooks (OM + GitHub + Slack):**
+**Cross-Platform Playbooks (OM + GitHub + Slack + Google):**
 - **📊 DQ Report & Notify** — Find DQ failures → publish GitHub gist → alert Slack
 - **🛡️ PII Compliance & Track** — Scan PII → tag tables → create GitHub issue → notify Slack
+- **📋 DQ Sheet & Alert** — Find DQ failures → create Google Sheet report → alert Slack
+- **📝 Metadata Audit Doc** — Audit metadata → publish Google Doc → create GitHub issue → notify Slack
 
 ### 💬 Free-Form Chat
 Natural language interface that automatically routes questions to the right specialist. Ask anything — the orchestrator decides which agents to invoke.
@@ -104,7 +115,7 @@ Server-Sent Events (SSE) for live agent reasoning and step-by-step playbook prog
 | **LLM** | Google Gemini 2.5 Flash via LangChain |
 | **Backend** | FastAPI + SSE-Starlette |
 | **Frontend** | React 19 + TypeScript + Tailwind CSS |
-| **Cross-Platform** | GitHub REST API + Slack Webhooks (via httpx) |
+| **Cross-Platform** | GitHub REST API + Slack Webhooks + Google Workspace APIs |
 | **Deployment** | Docker Compose (OpenMetadata v1.12.4) |
 
 ## Quick Start
@@ -115,6 +126,7 @@ Server-Sent Events (SSE) for live agent reasoning and step-by-step playbook prog
 - OpenMetadata PAT token (generated after first login)
 - *(Optional)* GitHub personal access token for GitHub agent
 - *(Optional)* Slack webhook URL for Slack agent
+- *(Optional)* Google Cloud Service Account JSON for Google agent
 
 ### 1. Clone and configure
 
@@ -134,6 +146,7 @@ OM_TOKEN=your-personal-access-token
 GITHUB_TOKEN=ghp_your_github_pat
 GITHUB_DEFAULT_REPO=owner/repo
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../xxx
+GOOGLE_SERVICE_ACCOUNT_FILE=path/to/service-account.json
 ```
 
 ### 2. Start everything
@@ -195,14 +208,15 @@ metaflow/
 │   │   │   ├── config.py           # Settings from env vars
 │   │   │   └── clients.py          # AI SDK + LLM singletons
 │   │   ├── agents/
-│   │   │   ├── prompts.py          # System prompts (7 agents + supervisor)
+│   │   │   ├── prompts.py          # System prompts (8 agents + supervisor)
 │   │   │   ├── specialists.py      # Specialist agent factory
 │   │   │   └── orchestrator.py     # LangGraph multi-MCP supervisor
 │   │   ├── tools/                  # Cross-platform tool modules
 │   │   │   ├── github_tools.py     # GitHub REST API tools (3)
-│   │   │   └── slack_tools.py      # Slack webhook tools (2)
+│   │   │   ├── slack_tools.py      # Slack webhook tools (2)
+│   │   │   └── google_tools.py     # Google Workspace tools (3)
 │   │   └── playbooks/
-│   │       ├── registry.py         # 6 playbook definitions
+│   │       ├── registry.py         # 8 playbook definitions
 │   │       └── executor.py         # Step-by-step playbook runner
 ├── frontend/
 │   ├── package.json
@@ -247,6 +261,9 @@ All 11 MCP tools from OpenMetadata's AI SDK are utilized across the agents:
 | `search_github_issues` | GitHub | query, state |
 | `send_slack_notification` | Slack | message |
 | `send_slack_alert` | Slack | title, summary, severity, details, link |
+| `create_google_sheet` | Google Workspace | title, headers, rows |
+| `create_google_doc` | Google Workspace | title, content |
+| `append_to_google_sheet` | Google Workspace | spreadsheet_id, rows |
 
 ## Hackathon Alignment
 
@@ -254,9 +271,9 @@ All 11 MCP tools from OpenMetadata's AI SDK are utilized across the agents:
 > *"Combine OpenMetadata MCP with GitHub MCP, Slack MCP for cross-platform workflows"*
 
 MetaFlow directly addresses this by:
-- Orchestrating **3 platforms** (OpenMetadata MCP + GitHub + Slack) in a single supervisor
-- **7 specialist agents** with domain-specific tool assignments
-- **Cross-platform playbooks** that chain operations across all 3 platforms
+- Orchestrating **4 platforms** (OpenMetadata MCP + GitHub + Slack + Google Workspace) in a single supervisor
+- **8 specialist agents** with domain-specific tool assignments
+- **Cross-platform playbooks** that chain operations across all 4 platforms
 - A **natural language router** that decides which agents to invoke
 
 ### Tracks Covered

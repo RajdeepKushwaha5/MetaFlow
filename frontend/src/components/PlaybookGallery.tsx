@@ -75,6 +75,26 @@ export default function PlaybookGallery({ onSelect }: Props) {
             input_placeholder: "e.g. All tables in the 'marketing' domain",
             step_count: 4,
           },
+          {
+            id: "dq-sheet-alert",
+            name: "DQ Sheet & Alert",
+            icon: "📋",
+            description:
+              "Cross-platform: Find DQ failures, create Google Sheet report, alert Slack.",
+            input_label: "DQ scope",
+            input_placeholder: "e.g. Tables in the 'analytics' database with DQ failures",
+            step_count: 3,
+          },
+          {
+            id: "metadata-audit-doc",
+            name: "Metadata Audit Doc",
+            icon: "📝",
+            description:
+              "Cross-platform: Audit metadata, publish Google Doc, track on GitHub, notify Slack.",
+            input_label: "Audit scope",
+            input_placeholder: "e.g. All tables in the 'warehouse' schema",
+            step_count: 4,
+          },
         ]);
       });
   }, []);

@@ -288,9 +288,107 @@ PII_TRACK_NOTIFY = Playbook(
     ],
 )
 
+# ---------------------------------------------------------------------------
+# Google Workspace playbooks — Multi-MCP workflows (OM + Google + Slack/GitHub)
+# ---------------------------------------------------------------------------
+
+DQ_SHEET_ALERT = Playbook(
+    id="dq-sheet-alert",
+    name="DQ Sheet & Alert",
+    icon="📋",
+    description=(
+        "Cross-platform workflow: Find data quality failures, create a "
+        "Google Sheet with the results, and alert the team on Slack."
+    ),
+    input_label="DQ scope",
+    input_placeholder="e.g. Tables in the 'analytics' database with DQ failures",
+    steps=[
+        PlaybookStep(
+            instruction=(
+                "Find all tables that have data quality test failures in the "
+                "following scope. For each, list the table name, test name, "
+                "status, severity, and failure details: {user_input}"
+            ),
+            description="Scanning for DQ failures (OpenMetadata MCP)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Based on the data quality failures found above, create a "
+                "Google Sheet containing the results. Use the title "
+                "'DQ Failures Report' with headers: "
+                "Table, Test, Status, Severity, Details, Owner. "
+                "Populate rows from the failures found."
+            ),
+            description="Creating DQ report spreadsheet (Google Sheets)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Send a Slack alert about the data quality failures. "
+                "Set severity based on the findings. Include a summary "
+                "and the link to the Google Sheet created in the previous step."
+            ),
+            description="Alerting team via Slack (Slack Webhook)",
+        ),
+    ],
+)
+
+METADATA_AUDIT_DOC = Playbook(
+    id="metadata-audit-doc",
+    name="Metadata Audit Doc",
+    icon="📝",
+    description=(
+        "Cross-platform workflow: Audit metadata completeness, generate a "
+        "Google Doc report, create a GitHub tracking issue, and notify Slack."
+    ),
+    input_label="Audit scope",
+    input_placeholder="e.g. All tables in the 'warehouse' schema",
+    steps=[
+        PlaybookStep(
+            instruction=(
+                "Audit metadata completeness for the following scope. "
+                "Identify tables missing descriptions, owners, or tags. "
+                "Count total tables vs compliant tables: {user_input}"
+            ),
+            description="Auditing metadata completeness (OpenMetadata MCP)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Based on the metadata audit above, create a Google Doc "
+                "containing a detailed audit report. Include:\n"
+                "# Metadata Audit Report\n"
+                "## Summary\n"
+                "Total tables, compliance rate, key findings.\n"
+                "## Tables Missing Metadata\n"
+                "List each table and what's missing.\n"
+                "## Recommendations\n"
+                "Action items to improve metadata coverage."
+            ),
+            description="Publishing audit report (Google Docs)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Create a GitHub issue to track the metadata audit findings. "
+                "Title: 'Metadata Audit — [scope] — Action Required'. "
+                "Include the audit summary, link to the Google Doc, and "
+                "a checklist of action items. Labels: 'metadata', 'audit'."
+            ),
+            description="Creating tracking issue (GitHub API)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Send a Slack notification summarizing the metadata audit. "
+                "Include the compliance rate, key findings, and links to "
+                "both the Google Doc report and the GitHub tracking issue."
+            ),
+            description="Notifying team via Slack (Slack Webhook)",
+        ),
+    ],
+)
+
 # Registry of all playbooks
 PLAYBOOKS: dict[str, Playbook] = {
     p.id: p
     for p in [IMPACT_RADAR, PII_COMPLIANCE_SWEEP, DQ_FIRE_DRILL, METADATA_HEALTH,
-              DQ_REPORT_NOTIFY, PII_TRACK_NOTIFY]
+              DQ_REPORT_NOTIFY, PII_TRACK_NOTIFY, DQ_SHEET_ALERT,
+              METADATA_AUDIT_DOC]
 }

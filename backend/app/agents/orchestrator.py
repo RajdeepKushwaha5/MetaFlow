@@ -1,11 +1,11 @@
 """Multi-MCP agent orchestrator built on ``langgraph-supervisor``.
 
 Creates a supervisor graph that delegates to specialist agents across
-three platforms: OpenMetadata MCP, GitHub, and Slack.
+four platforms: OpenMetadata MCP, GitHub, Slack, and Google Workspace.
 
 This is the core of the Multi-MCP Agent Orchestrator — it combines
-tools from the OpenMetadata MCP server with GitHub and Slack APIs
-to enable cross-platform metadata workflows.
+tools from the OpenMetadata MCP server with GitHub, Slack, and Google
+APIs to enable cross-platform metadata workflows.
 """
 
 from __future__ import annotations
@@ -17,16 +17,18 @@ from app.agents.prompts import ORCHESTRATOR_PROMPT
 from app.agents.specialists import SPECIALIST_CONFIGS, create_specialist
 from app.core.clients import get_ai_sdk_client, get_llm, get_metadata_host
 from app.tools.github_tools import get_github_tools
+from app.tools.google_tools import get_google_tools
 from app.tools.slack_tools import get_slack_tools
 
 
 def build_orchestrator():
     """Build and compile the full multi-agent orchestrator graph.
 
-    Creates 7 specialist agents:
+    Creates 8 specialist agents:
     - 5 OpenMetadata MCP agents (discovery, lineage, curator, DQ, governance)
     - 1 GitHub agent (issues, gists, search)
     - 1 Slack agent (notifications, alerts)
+    - 1 Google agent (Sheets, Docs)
 
     The supervisor routes user requests to the right specialist(s) and
     chains them for cross-platform workflows.
@@ -41,11 +43,13 @@ def build_orchestrator():
     # Prepare cross-platform tools
     github_tools = get_github_tools()
     slack_tools = get_slack_tools()
+    google_tools = get_google_tools()
 
     # Map agent names to their extra (non-MCP) tools
     extra_tools_map = {
         "github_agent": github_tools,
         "slack_agent": slack_tools,
+        "google_agent": google_tools,
     }
 
     # Create each specialist agent

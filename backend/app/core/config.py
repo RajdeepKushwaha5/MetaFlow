@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     slack_webhook_url: str = ""
     github_token: str = ""
     github_default_repo: str = ""
+    google_service_account_file: str = ""
 
     # Server
     host: str = "0.0.0.0"
