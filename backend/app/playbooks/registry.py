@@ -37,7 +37,7 @@ class Playbook:
 IMPACT_RADAR = Playbook(
     id="impact-radar",
     name="Impact Radar",
-    icon="🎯",
+    icon="target",
     description=(
         "Analyze the blast radius of a schema change. Discovers the table, "
         "maps upstream and downstream lineage, identifies affected dashboards "
@@ -80,7 +80,7 @@ IMPACT_RADAR = Playbook(
 PII_COMPLIANCE_SWEEP = Playbook(
     id="pii-sweep",
     name="PII Compliance Sweep",
-    icon="🔒",
+    icon="lock",
     description=(
         "Scan the catalog for tables that may contain PII data. "
         "Check if they are properly tagged and classified, and "
@@ -119,7 +119,7 @@ PII_COMPLIANCE_SWEEP = Playbook(
 DQ_FIRE_DRILL = Playbook(
     id="dq-fire-drill",
     name="Data Quality Fire Drill",
-    icon="🚨",
+    icon="alert-triangle",
     description=(
         "Investigate a data quality failure. Perform root cause analysis, "
         "trace the issue through lineage, and recommend remediation steps."
@@ -158,7 +158,7 @@ DQ_FIRE_DRILL = Playbook(
 METADATA_HEALTH = Playbook(
     id="metadata-health",
     name="Metadata Health Doctor",
-    icon="🩺",
+    icon="stethoscope",
     description=(
         "Audit metadata completeness across a schema. Find tables "
         "missing descriptions, owners, or tags and suggest fixes."
@@ -200,7 +200,7 @@ METADATA_HEALTH = Playbook(
 DQ_REPORT_NOTIFY = Playbook(
     id="dq-report-notify",
     name="DQ Report & Notify",
-    icon="📊",
+    icon="file-bar-chart",
     description=(
         "Cross-platform workflow: Find data quality failures, create a "
         "GitHub gist with a detailed report, and post an alert to Slack."
@@ -241,7 +241,7 @@ DQ_REPORT_NOTIFY = Playbook(
 PII_TRACK_NOTIFY = Playbook(
     id="pii-track-notify",
     name="PII Compliance & Track",
-    icon="🛡️",
+    icon="shield-check",
     description=(
         "Cross-platform workflow: Scan for PII tables, check compliance "
         "status, create a GitHub tracking issue, and notify via Slack."
@@ -295,7 +295,7 @@ PII_TRACK_NOTIFY = Playbook(
 DQ_SHEET_ALERT = Playbook(
     id="dq-sheet-alert",
     name="DQ Sheet & Alert",
-    icon="📋",
+    icon="sheet",
     description=(
         "Cross-platform workflow: Find data quality failures, create a "
         "Google Sheet with the results, and alert the team on Slack."
@@ -335,7 +335,7 @@ DQ_SHEET_ALERT = Playbook(
 METADATA_AUDIT_DOC = Playbook(
     id="metadata-audit-doc",
     name="Metadata Audit Doc",
-    icon="📝",
+    icon="file-text",
     description=(
         "Cross-platform workflow: Audit metadata completeness, generate a "
         "Google Doc report, create a GitHub tracking issue, and notify Slack."
@@ -385,10 +385,375 @@ METADATA_AUDIT_DOC = Playbook(
     ],
 )
 
+# ---------------------------------------------------------------------------
+# Jira + Email + Notion playbooks — 7-platform cross-platform workflows
+# ---------------------------------------------------------------------------
+
+DQ_JIRA_EMAIL = Playbook(
+    id="dq-jira-email",
+    name="DQ Ticket & Email",
+    icon="ticket-check",
+    description=(
+        "Cross-platform workflow: Find data quality failures, create a "
+        "Jira ticket to track remediation, and email the data owner."
+    ),
+    input_label="DQ scope",
+    input_placeholder="e.g. Failed tests on the 'orders' table",
+    steps=[
+        PlaybookStep(
+            instruction=(
+                "Find all data quality test failures related to: {user_input}. "
+                "For each failure, show the test name, status, severity, and details."
+            ),
+            description="Scanning for DQ failures (OpenMetadata MCP)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Based on the DQ failures found above, create a Jira issue. "
+                "Title: 'DQ Failure — [entity name]'. Description should include: "
+                "Summary of all failures, severity levels, affected entities, "
+                "and recommended remediation steps. Set priority based on severity. "
+                "Add labels: 'data-quality', 'automated'."
+            ),
+            description="Creating Jira ticket (Jira API)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Send an email alert about the DQ failures to the data owner. "
+                "Set severity based on the findings. Include a brief summary "
+                "and mention the Jira ticket created in the previous step."
+            ),
+            description="Emailing data owner (SMTP)",
+        ),
+    ],
+)
+
+LINEAGE_NOTION_JIRA = Playbook(
+    id="lineage-notion-jira",
+    name="Lineage Doc & Track",
+    icon="git-branch",
+    description=(
+        "Cross-platform workflow: Trace entity lineage, document it as a "
+        "Notion page, and create a Jira ticket for follow-up actions."
+    ),
+    input_label="Entity to trace",
+    input_placeholder="e.g. The 'customer_orders' table in BigQuery",
+    steps=[
+        PlaybookStep(
+            instruction=(
+                "Find the entity described below and trace its full lineage — "
+                "both upstream sources and downstream consumers: {user_input}"
+            ),
+            description="Tracing data lineage (OpenMetadata MCP)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Based on the lineage analysis above, create a Notion page "
+                "documenting the data lineage. Title: 'Lineage Documentation — "
+                "[entity name]'. Include sections: Upstream Sources, Downstream "
+                "Consumers, Data Flow, Impact Assessment, and Recommendations."
+            ),
+            description="Creating lineage doc (Notion API)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Create a Jira issue to track any lineage-related action items. "
+                "Title: 'Lineage Review — [entity name]'. Include a link to the "
+                "Notion documentation page and list any concerns found (missing "
+                "lineage, undocumented dependencies, PII propagation). "
+                "Labels: 'lineage', 'documentation'."
+            ),
+            description="Creating tracking ticket (Jira API)",
+        ),
+    ],
+)
+
+FULL_INCIDENT_RESPONSE = Playbook(
+    id="full-incident-response",
+    name="Full Incident Response",
+    icon="workflow",
+    description=(
+        "7-platform mega workflow: Diagnose a DQ incident, create a Google "
+        "Sheet report, document in Notion, file a Jira ticket, create a "
+        "GitHub issue, email the owner, and alert Slack."
+    ),
+    input_label="Incident description",
+    input_placeholder="e.g. Critical null rate spike on orders.amount affecting dashboards",
+    steps=[
+        PlaybookStep(
+            instruction=(
+                "Perform a thorough investigation of this data incident: "
+                "{user_input}. Run root cause analysis, trace affected lineage, "
+                "and assess the full blast radius. Produce a structured cause "
+                "tree and impact scores for all affected entities."
+            ),
+            description="Investigating incident (OpenMetadata MCP)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Create a Google Sheet summarizing the incident. Title: "
+                "'Incident Report — [date]'. Headers: Entity, Issue, Severity, "
+                "Impact Score, Status. Populate with all findings from the investigation."
+            ),
+            description="Creating incident spreadsheet (Google Sheets)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Create a detailed Notion page documenting the incident. Include: "
+                "# Incident Report, ## Timeline, ## Root Cause (with cause tree), "
+                "## Impact Assessment (with impact scores), ## Affected Entities, "
+                "## Remediation Plan, ## Lessons Learned."
+            ),
+            description="Documenting in Notion (Notion API)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Create a Jira issue to track remediation. Priority: High. "
+                "Include links to the Google Sheet and Notion documentation. "
+                "Labels: 'incident', 'data-quality', 'urgent'."
+            ),
+            description="Filing Jira ticket (Jira API)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Create a GitHub issue for engineering follow-up. Include "
+                "technical details, root cause, and a checklist of fixes. "
+                "Labels: 'incident', 'data-quality', 'P1'."
+            ),
+            description="Creating GitHub issue (GitHub API)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Send an email report to the data owner with full incident "
+                "details, links to all created artifacts, and next steps. "
+                "Severity: critical."
+            ),
+            description="Emailing data owner (SMTP)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Send a critical Slack alert summarizing the incident. Include "
+                "links to the Jira ticket, GitHub issue, Google Sheet, and "
+                "Notion page. Keep it concise but actionable."
+            ),
+            description="Alerting team on Slack (Slack Webhook)",
+        ),
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# AI-Powered playbooks — DQ recommendations & Platform Health KPIs
+# ---------------------------------------------------------------------------
+
+DQ_TEST_RECOMMENDER = Playbook(
+    id="dq-test-recommender",
+    name="DQ Test Recommender",
+    icon="sparkles",
+    description=(
+        "AI-powered workflow: Analyze a table's columns and profile, "
+        "then suggest and create appropriate data quality tests with "
+        "sensible default parameters. The AI explains its reasoning."
+    ),
+    input_label="Table to analyze",
+    input_placeholder="e.g. shopify_db.public.orders",
+    steps=[
+        PlaybookStep(
+            instruction=(
+                "Get the full details of this table including all columns, "
+                "their types, descriptions, and any existing tags or tests: "
+                "{user_input}"
+            ),
+            description="Inspecting table profile (OpenMetadata MCP)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "List all available data quality test definitions. Then "
+                "analyze the columns of the table above and recommend "
+                "appropriate tests for each column. Consider:\n"
+                "- Column name patterns (email → format, id → uniqueness)\n"
+                "- Data types (numeric → range checks, string → regex)\n"
+                "- Descriptions (hints about expected values)\n"
+                "- Existing tests (avoid duplicates)\n\n"
+                "Present recommendations as a table:\n"
+                "| Column | Suggested Test | Parameters | Reasoning |\n"
+                "Include at least 3-5 test recommendations."
+            ),
+            description="AI-analyzing columns & recommending tests",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Create the top 3 most impactful recommended test cases "
+                "from the analysis above. Use the appropriate test definition "
+                "and sensible default parameters. Report each created test "
+                "with its entity link and configuration."
+            ),
+            description="Creating recommended test cases (OpenMetadata MCP)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Send a Slack notification summarizing the DQ test setup:\n"
+                "- Which table was analyzed\n"
+                "- How many tests were recommended vs created\n"
+                "- What types of tests were added\n"
+                "Use 'success' severity."
+            ),
+            description="Notifying team (Slack Webhook)",
+        ),
+    ],
+)
+
+PLATFORM_HEALTH_KPI = Playbook(
+    id="platform-health-kpi",
+    name="Platform Health & KPI Report",
+    icon="bar-chart-3",
+    description=(
+        "Analytics workflow: Query platform-wide KPIs — documentation "
+        "coverage, ownership rates, DQ pass rates — and generate a "
+        "comprehensive Google Sheet dashboard with Slack summary."
+    ),
+    input_label="Report scope",
+    input_placeholder="e.g. All databases, or filter to 'analytics' service",
+    steps=[
+        PlaybookStep(
+            instruction=(
+                "Get a comprehensive data insights summary for the platform. "
+                "Include total entity counts, documentation coverage percentage, "
+                "ownership coverage percentage. Scope: {user_input}"
+            ),
+            description="Querying platform analytics (OM REST API)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Get the data quality summary: total tests, pass/fail counts, "
+                "pass rate, and the top failing tests. Also get ownership and "
+                "description coverage details."
+            ),
+            description="Gathering DQ & coverage KPIs (OM REST API)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Create a Google Sheet KPI dashboard. Title: "
+                "'Platform Health KPI Report'. Include sheets with:\n"
+                "Headers: Metric, Value, Target, Status\n"
+                "Rows for: Total Tables, Doc Coverage %, Ownership %, "
+                "DQ Pass Rate %, Total Tests, Failed Tests\n"
+                "Then a second table of top failing tests with details."
+            ),
+            description="Building KPI spreadsheet (Google Sheets)",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Send a Slack alert with the KPI summary. Include the key "
+                "metrics (doc coverage, ownership, DQ pass rate) and a link "
+                "to the Google Sheet. Use severity based on the numbers: "
+                "'success' if all >80%, 'warning' if any <80%, 'critical' "
+                "if any <50%."
+            ),
+            description="Broadcasting KPI summary (Slack Webhook)",
+        ),
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# Hero P0 — Contract Copilot (Generate → Publish → Materialize → Heal)
+# ---------------------------------------------------------------------------
+
+CONTRACT_COPILOT = Playbook(
+    id="contract-copilot",
+    name="Contract Copilot",
+    icon="shield",
+    description=(
+        "Hero workflow: turn a table into a self-healing OpenMetadata "
+        "Data Contract. Generates schema + semantics + SLA + quality "
+        "gates from lineage and profiler stats, publishes to OM, "
+        "materializes the gates as test cases, and drafts a remediation "
+        "PR if the contract is ever violated."
+    ),
+    input_label="Target table FQN",
+    input_placeholder="e.g. warehouse.analytics.daily_revenue",
+    steps=[
+        PlaybookStep(
+            instruction=(
+                "Generate a complete Data Contract for this table. Walk its "
+                "upstream lineage, analyze profiler stats for every column, "
+                "and synthesize schema expectations, semantics rules, an SLA "
+                "(freshness + volume + availability), and quality gates with "
+                "blocker/major/minor severities: {user_input}"
+            ),
+            description="Generating contract from lineage + profile",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Publish the contract you just generated back to OpenMetadata "
+                "via the dataContracts API (status: Draft). Confirm the "
+                "contract URL and the assigned status."
+            ),
+            description="Publishing to OpenMetadata Data Contracts API",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Materialize each quality gate from the contract as a real "
+                "OpenMetadata test case. Report how many test cases were "
+                "created, skipped, or failed. The contract is now enforceable."
+            ),
+            description="Materializing quality gates as OM test cases",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Get the current status of the contract. If it is `Violated`, "
+                "call propose_contract_heal with a one-line summary of the "
+                "violation and hand the resulting ticket_draft to the GitHub "
+                "agent to open a remediation PR. If it is `Active` or "
+                "`Draft`, simply confirm the contract is healthy and report "
+                "the next evaluation window."
+            ),
+            description="Monitoring + healing if violated",
+        ),
+    ],
+)
+
+BULK_LINEAGE_FROM_QUERY_LOGS = Playbook(
+    id="bulk-lineage-from-query-logs",
+    name="Bulk Lineage from Query Logs",
+    icon="git-branch",
+    description=(
+        "Scale-out lineage authoring (the Claude-demo parallel from the OM "
+        "talk). Reads recorded query history, infers source -> target pairs "
+        "from JOIN / INSERT INTO patterns, then writes lineage edges into "
+        "OpenMetadata in one batch."
+    ),
+    input_label="Service or scope",
+    input_placeholder="e.g. snowflake (or leave blank for all services)",
+    steps=[
+        PlaybookStep(
+            instruction=(
+                "Call get_query_history_lineage_candidates with service_name "
+                "set to the user input below (treat blank as all services). "
+                "Show the user the top 10 candidates as a table with "
+                "source, target, confidence, and evidence count.\n\n"
+                "User scope: {user_input}"
+            ),
+            description="Inferring lineage from query history",
+        ),
+        PlaybookStep(
+            instruction=(
+                "Now call bulk_add_lineage_edges with the candidates JSON "
+                "from the previous step and min_confidence=0.7. Report how "
+                "many edges were added, skipped (low confidence), and "
+                "failed. Reference the OM URL for one of the newly-linked "
+                "tables so the user can verify."
+            ),
+            description="Materializing edges in OpenMetadata",
+        ),
+    ],
+)
+
 # Registry of all playbooks
 PLAYBOOKS: dict[str, Playbook] = {
     p.id: p
-    for p in [IMPACT_RADAR, PII_COMPLIANCE_SWEEP, DQ_FIRE_DRILL, METADATA_HEALTH,
+    for p in [CONTRACT_COPILOT, IMPACT_RADAR, PII_COMPLIANCE_SWEEP, DQ_FIRE_DRILL, METADATA_HEALTH,
               DQ_REPORT_NOTIFY, PII_TRACK_NOTIFY, DQ_SHEET_ALERT,
-              METADATA_AUDIT_DOC]
+              METADATA_AUDIT_DOC, DQ_JIRA_EMAIL, LINEAGE_NOTION_JIRA,
+              FULL_INCIDENT_RESPONSE, DQ_TEST_RECOMMENDER, PLATFORM_HEALTH_KPI,
+              BULK_LINEAGE_FROM_QUERY_LOGS]
 }

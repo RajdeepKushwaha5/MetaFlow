@@ -27,6 +27,10 @@ async def execute_playbook(
         yield {"type": "error", "message": f"Unknown playbook: {playbook_id}"}
         return
 
+    if orchestrator is None:
+        yield {"type": "error", "message": "Orchestrator not initialized. Check backend settings."}
+        return
+
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -40,7 +44,8 @@ async def execute_playbook(
                 {"messages": [{"role": "user", "content": prompt}]},
                 config=config,
             )
-            content = result["messages"][-1].content
+            messages = result.get("messages", [])
+            content = messages[-1].content if messages else "No response generated."
             yield {"type": "chunk", "step": idx, "content": content}
         except Exception as exc:
             yield {"type": "error", "message": f"Step {idx} failed: {exc}"}

@@ -1,0 +1,107 @@
+ok so basically heres the deal with MetaFlow
+
+you know OpenMetadata right? its like this open source platform where companies
+keep track of all their data - tables, pipelines, dashboards, who owns what,
+data quality tests, lineage (like which table feeds into which), all that stuff.
+its basically the single source of truth for your data catalog.
+
+now OpenMetadata recently added this thing called MCP - Model Context Protocol.
+think of it like a plug that lets AI models talk to your metadata. so instead of
+you manually clicking around the UI to find stuff, an AI agent can just call
+functions like "search for tables with PII" or "show me the lineage of this
+table" or "run a root cause analysis on this failed test" - all through MCP.
+
+cool. but heres the problem.
+
+OpenMetadata gives you these cookbook recipes - little python scripts you run in
+your terminal. one script searches metadata. another one does lineage. another
+does data quality checks. they all work fine individually but theyre all
+separate CLI scripts. no UI, no way to chain them together, no way to say
+"hey find the broken tests AND THEN create a jira ticket AND THEN email the
+data owner AND THEN post in slack about it."
+
+thats where MetaFlow comes in.
+
+MetaFlow is basically the car built on top of OpenMetadatas wheels.
+
+its a full web app - React frontend, FastAPI backend - where you can either
+type natural language requests in a chat or pick from pre-built playbooks
+(which are like template workflows). and then behind the scenes, a bunch of
+AI agents work together to get stuff done across multiple platforms.
+
+heres how it works step by step:
+
+1. you type something like "find all failing data quality tests on the orders
+   table and create a github issue about it"
+
+2. the request hits our FastAPI backend which passes it to a LangGraph
+   supervisor (think of it as a smart router/manager)
+
+3. the supervisor looks at what you asked and decides ok i need the
+   Data Quality agent first, then the GitHub agent
+
+4. the DQ agent connects to OpenMetadata through MCP, calls tools like
+   get_test_definitions and root_cause_analysis, figures out whats broken
+
+5. then the supervisor hands things off to the GitHub agent which calls
+   the GitHub API to create an issue with all the details
+
+6. all of this streams back to your browser in real time - you can see
+   which agent is working, what tools its calling, live reasoning timeline
+
+the agents we have (11 total):
+
+  OpenMetadata agents (these use MCP):
+  - Discovery agent - searches and finds stuff in your catalog
+  - Lineage agent - traces data flow upstream/downstream
+  - Curator agent - updates descriptions, adds tags, creates glossary terms
+  - Data Quality agent - investigates test failures, does root cause analysis
+  - Governance agent - handles PII tagging, compliance stuff
+
+  Cross-platform agents (these use regular APIs):
+  - GitHub agent - creates issues, gists
+  - Slack agent - sends notifications via webhooks
+  - Google agent - creates Sheets and Docs
+  - Email agent - sends HTML emails via SMTP
+  - Jira agent - creates tickets, adds comments
+  - Notion agent - creates pages and documentation
+
+the playbooks (11 pre-built workflows):
+
+some simple ones like "scan for PII and tag whats missing"
+some medium ones like "find DQ failures -> create github gist -> alert slack"
+and one mega workflow that hits ALL 7 platforms - does investigation, creates
+a google sheet, notion doc, jira ticket, github issue, sends email, posts slack
+
+the frontend has:
+- chat page (type anything, get multi-agent responses with live reasoning)
+- playbook gallery (pick a template, fill in params, hit run)
+- conversation history (resume old chats)
+- dashboard with agent activity stats
+- settings page to switch between Gemini and OpenAI models
+- about page with an interactive flow diagram showing how workflows move
+  through different agents
+
+tech stack if anyone asks:
+- backend: Python, FastAPI, LangGraph, Google Gemini (2.5 flash), SQLite
+- frontend: React, TypeScript, Vite, Tailwind CSS
+- deployment: Docker Compose (spins up OpenMetadata + MySQL + Elasticsearch
+  + Airflow + MetaFlow backend + frontend all together)
+
+the OpenMetadata connection specifically:
+- we use their official data-ai-sdk python package
+- it connects to OpenMetadatas built-in MCP server (no separate server needed)
+- authenticates with a JWT token
+- gives us 11 MCP tools: search, semantic search, get entity details,
+  get lineage, patch entities, create glossary terms, create test cases,
+  root cause analysis, and more
+- the agents call these tools just like any other function - LangGraph
+  handles the routing and chaining
+
+so basically the whole point is: instead of running 5 different scripts in 5
+different terminals and manually copy-pasting results between them, you just
+type what you want in plain english and MetaFlow figures out which agents to
+call, in what order, across which platforms, and streams the whole thing back
+to you live.
+
+thats it. thats the project.

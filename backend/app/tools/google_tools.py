@@ -18,6 +18,7 @@ import logging
 from langchain_core.tools import tool
 
 from app.core.config import settings
+from app.core.demo import google_doc_created, google_sheet_created, is_demo, generic_ok
 
 _logger = logging.getLogger(__name__)
 
@@ -71,6 +72,8 @@ def create_google_sheet(title: str, headers: str, rows: str) -> str:
               has values matching the headers. Example:
               '[["orders","null_check","FAILED","critical"],["users","unique","PASSED","info"]]'
     """
+    if is_demo():
+        return google_sheet_created(title)
     try:
         sheets, _, drive = _get_google_services()
     except RuntimeError as e:
@@ -177,6 +180,8 @@ def create_google_doc(title: str, content: str) -> str:
         content: The full document content. Use markdown-style formatting:
                  lines starting with # for headings, - for bullets, etc.
     """
+    if is_demo():
+        return google_doc_created(title)
     try:
         _, docs, drive = _get_google_services()
     except RuntimeError as e:
@@ -306,6 +311,8 @@ def append_to_google_sheet(spreadsheet_id: str, rows: str) -> str:
         rows: JSON array of arrays representing row data to append.
               Example: '[["2025-06-28","orders.amount","null_check","FAILED"]]'
     """
+    if is_demo():
+        return generic_ok("Sheet rows appended", {"spreadsheet_id": spreadsheet_id})
     try:
         sheets, _, _ = _get_google_services()
     except RuntimeError as e:

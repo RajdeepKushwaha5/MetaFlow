@@ -32,3 +32,9 @@ Thumbs.db
 memory.md
 test_payload.json
 *.tsbuildinfo
+
+# Local runtime data
+*.db
+*.sqlite
+*.sqlite3
+backend/conversations.db

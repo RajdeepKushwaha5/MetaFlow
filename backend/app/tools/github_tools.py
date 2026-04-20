@@ -11,6 +11,12 @@ import httpx
 from langchain_core.tools import tool
 
 from app.core.config import settings
+from app.core.demo import (
+    github_gist_created,
+    github_issue_created,
+    is_demo,
+    generic_ok,
+)
 
 
 def get_github_tools() -> list:
@@ -31,6 +37,8 @@ def create_github_issue(title: str, body: str, labels: str = "") -> str:
               and recommended actions.
         labels: Comma-separated label names (e.g. "data-quality,urgent").
     """
+    if is_demo():
+        return github_issue_created(title)
     if not settings.github_token:
         return "Error: GitHub token not configured. Set GITHUB_TOKEN in .env"
     if not settings.github_default_repo:
@@ -80,6 +88,8 @@ def create_github_gist(description: str, filename: str, content: str) -> str:
         filename: File name including extension (e.g. "dq-report.md").
         content: Full file content (markdown recommended).
     """
+    if is_demo():
+        return github_gist_created(filename)
     if not settings.github_token:
         return "Error: GitHub token not configured. Set GITHUB_TOKEN in .env"
 
@@ -123,6 +133,8 @@ def search_github_issues(query: str, state: str = "open") -> str:
         query: Search keywords.
         state: Issue state filter — "open", "closed", or "all".
     """
+    if is_demo():
+        return generic_ok("GitHub search", {"query": query, "state": state, "results": []})
     if not settings.github_token:
         return "Error: GitHub token not configured. Set GITHUB_TOKEN in .env"
     if not settings.github_default_repo:

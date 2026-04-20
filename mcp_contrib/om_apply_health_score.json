@@ -1,0 +1,73 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schema/v1/tool",
+  "name": "om_apply_health_score",
+  "title": "Apply MetaFlow Health Score",
+  "description": "Write a 0-100 health score and per-dimension breakdown back to an OpenMetadata entity as a native custom property (`metaflow_health_score` on the entity's `extension` block). Idempotently registers the custom property on the entity type the first time it's used. Visible in the OpenMetadata UI under the table's Custom Properties panel.",
+  "version": "0.1.0",
+  "author": "metaflow",
+  "homepage": "https://github.com/RajdeepKushwaha5/metaflow",
+  "license": "MIT",
+  "categories": ["openmetadata", "governance", "data-quality"],
+  "tags": ["om", "openmetadata", "custom-property", "health-score", "writeback"],
+  "inputSchema": {
+    "type": "object",
+    "required": ["entity_fqn", "score"],
+    "properties": {
+      "entity_fqn": {
+        "type": "string",
+        "description": "Fully qualified name of the OpenMetadata entity (e.g. `service.database.schema.table`)."
+      },
+      "score": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "description": "Overall MetaFlow health score (0-100)."
+      },
+      "breakdown": {
+        "type": "object",
+        "description": "Per-dimension subscores in [0, 1].",
+        "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1},
+        "example": {"contract": 1.0, "dq": 0.9, "pii": 0.8, "ownership": 0.7}
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "ok": {"type": "boolean"},
+      "entity_fqn": {"type": "string"},
+      "property": {"type": "string", "const": "metaflow_health_score"},
+      "score": {"type": "integer"},
+      "breakdown": {"type": "object"},
+      "om_url": {"type": "string", "format": "uri"},
+      "registered": {"type": "boolean", "description": "True if the custom property was created on this call (first-time use)."}
+    }
+  },
+  "examples": [
+    {
+      "input": {
+        "entity_fqn": "warehouse.crm.customers",
+        "score": 87,
+        "breakdown": {"contract": 1.0, "dq": 0.9, "pii": 0.8, "ownership": 0.85}
+      },
+      "output": {
+        "ok": true,
+        "entity_fqn": "warehouse.crm.customers",
+        "property": "metaflow_health_score",
+        "score": 87,
+        "breakdown": {"contract": 1.0, "dq": 0.9, "pii": 0.8, "ownership": 0.85},
+        "om_url": "http://localhost:8585/table/warehouse.crm.customers",
+        "registered": false
+      }
+    }
+  ],
+  "implementation": {
+    "kind": "rest-bridge",
+    "endpoint": "POST /api/governance/health-score",
+    "notes": "Reference implementation lives in `metaflow/backend/app/core/governance.py` (`write_health_score`). Bridge wraps the FastAPI endpoint; OM uses an `auth` token from `AI_SDK_TOKEN`."
+  },
+  "contribution": {
+    "submission": "OpenMetadata Hackathon 2026 — Pick #2: Multi-MCP Agent Orchestrator",
+    "rationale": "OM 1.12 ships custom properties but no canonical way for an autonomous agent to write a normalized score back to an entity. This tool defines that contract: a single `metaflow_health_score` extension key, idempotent type registration, and a JSON-PATCH writeback so the score is visible in OM's native UI alongside the entity's other metadata."
+  }
+}

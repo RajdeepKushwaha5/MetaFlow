@@ -13,6 +13,7 @@ import httpx
 from langchain_core.tools import tool
 
 from app.core.config import settings
+from app.core.demo import is_demo, slack_alert_ok, slack_notification_ok
 
 
 def get_slack_tools() -> list:
@@ -30,6 +31,8 @@ def send_slack_notification(message: str) -> str:
     Args:
         message: The message text to send. Supports Slack mrkdwn formatting.
     """
+    if is_demo():
+        return slack_notification_ok(message)
     if not settings.slack_webhook_url:
         return "Error: Slack webhook URL not configured. Set SLACK_WEBHOOK_URL in .env"
 
@@ -70,6 +73,8 @@ def send_slack_alert(
         link_url: Optional URL to link to (e.g. a gist, OM entity, GitHub issue).
         link_text: Display text for the link button.
     """
+    if is_demo():
+        return slack_alert_ok(title, severity)
     if not settings.slack_webhook_url:
         return "Error: Slack webhook URL not configured. Set SLACK_WEBHOOK_URL in .env"
 

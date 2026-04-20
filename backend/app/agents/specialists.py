@@ -13,17 +13,23 @@ import logging
 from ai_sdk import AISdk
 from ai_sdk.mcp.models import MCPTool
 from langchain_core.tools import BaseTool
+from langchain_core.language_models import BaseChatModel
 from langgraph.prebuilt import create_react_agent
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.agents.prompts import (
+    CONTRACT_COPILOT_PROMPT,
     CURATOR_PROMPT,
     DATA_QUALITY_PROMPT,
     DISCOVERY_PROMPT,
+    EMAIL_PROMPT,
     GITHUB_PROMPT,
     GOOGLE_PROMPT,
     GOVERNANCE_PROMPT,
+    INSIGHTS_PROMPT,
+    JIRA_PROMPT,
     LINEAGE_PROMPT,
+    NOTION_PROMPT,
     SLACK_PROMPT,
 )
 
@@ -88,13 +94,39 @@ SPECIALIST_CONFIGS: dict[str, dict] = {
         "mcp_tools": [],
         "prompt": GOOGLE_PROMPT,
     },
+    "email_agent": {
+        "mcp_tools": [],
+        "prompt": EMAIL_PROMPT,
+    },
+    "jira_agent": {
+        "mcp_tools": [],
+        "prompt": JIRA_PROMPT,
+    },
+    "notion_agent": {
+        "mcp_tools": [],
+        "prompt": NOTION_PROMPT,
+    },
+    # Platform analytics specialist — uses OM REST API, not MCP
+    "insights_agent": {
+        "mcp_tools": [],
+        "prompt": INSIGHTS_PROMPT,
+    },
+    # Data Contract Copilot — generates / publishes / heals OM Data Contracts.
+    # Uses OM REST API directly; needs MCP entity-details for context.
+    "contract_copilot_agent": {
+        "mcp_tools": [
+            MCPTool.GET_ENTITY_DETAILS,
+            MCPTool.GET_ENTITY_LINEAGE,
+        ],
+        "prompt": CONTRACT_COPILOT_PROMPT,
+    },
 }
 
 
 def create_specialist(
     name: str,
     client: AISdk,
-    model: ChatGoogleGenerativeAI,
+    model: BaseChatModel,
     metadata_host: str,
     extra_tools: list[BaseTool] | None = None,
 ):
