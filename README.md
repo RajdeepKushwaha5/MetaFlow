@@ -1,7 +1,7 @@
 # MetaFlow
 
-> **Semantic intelligence for OpenMetadata — human direction, AI execution.**
-> A supervisor agent that turns OpenMetadata into a self-driving data platform across all three pillars: **Data Discovery · Data Observability · Data Governance**. Generates self-healing Data Contracts from lineage, runs an autonomous Data Steward 24/7, and writes its findings back into OpenMetadata as native custom properties so humans and AI agents see the same truth.
+> **A reference implementation of writeback-capable AI agents for OpenMetadata.**
+> We contributed a new MCP tool spec ([`mcp_contrib/`](mcp_contrib/)), an AI Studio Persona publisher, and a self-healing Data Contracts pattern — and shipped a UI to prove it works end-to-end.
 
 > 🎬 **30-second pitch:** _link your demo video here_
 
@@ -9,131 +9,123 @@
 
 ---
 
-## 🧭 The framing: semantic intelligence across the three pillars
+## 🛠 What we contributed back to OpenMetadata
 
-OpenMetadata's mission is _semantic intelligence_ — turning raw metadata into shared meaning that both people *and* AI agents can act on. Every MetaFlow surface maps to one of the three pillars OM ships for:
+This is the part Nick called out on the hackathon Slack — _"a great idea for the hackathon is taking those tools, adding to them, building on top of them."_ Our contributions live in [`mcp_contrib/`](mcp_contrib/) and are wired into a working backend:
 
-| Pillar | What MetaFlow contributes | Endpoints / Tools |
+| Contribution | Lives in | Reference impl |
 |---|---|---|
-| **🔎 Data Discovery** | `semantic_search`-first discovery prompt, "right answer in fewest tokens" filtering, OM search-preference aware. Every agent starts with semantic search before any full-table scan. | `chat` (DiscoveryAgent), `om_search_with_preferences` |
-| **📡 Data Observability** | Self-healing OM 1.12 Data Contracts with all six dimensions tagged. Schema-drift timeline from OM's native `versions/` API. Continuous Steward watching `/api/v1/events`. | `/api/reliability/contract` · `/api/governance/schema-drift` · `/api/steward/*` |
-| **🛡️ Data Governance** | Autonomous PII tagging, owner/tier setting, glossary-term creation. Every Steward scan **writes a `metaflow.health_score` custom property back to the entity in OM** — visible in OM's native UI. | `/api/governance/health-score` · `om_governance_tools` |
+| **`om_apply_health_score`** — MCP tool spec for autonomous agents to score OM entities and write the score back as a native custom property | [`mcp_contrib/om_apply_health_score.json`](mcp_contrib/om_apply_health_score.json) | [`backend/app/core/governance.py`](backend/app/core/governance.py) → `write_health_score` |
+| **AI Studio Persona publisher** — pushes 12 MetaFlow specialists into OM's native Persona registry (`client.personas.upsert`) so agents appear alongside OM's own | [`backend/app/core/personas.py`](backend/app/core/personas.py) | `POST /api/personas/publish` |
+| **Self-healing Data Contracts pattern** — generates OM 1.12 contracts from lineage + profiler stats, materializes every gate as a real `dataQuality/testCases` POST, and AI-classifies failures into ready-to-merge SQL fixes | [`backend/app/core/contracts.py`](backend/app/core/contracts.py) | `POST /api/reliability/contract/heal` |
 
-**Human direction, AI execution** — exactly the pattern OpenMetadata is pushing the ecosystem toward.
-
----
-
-## 🏆 Why this wins
-
-### 1. Headline: **Self-healing Data Contracts** (OM 1.12 flagship)
-- Walk a table's lineage and **profiler stats** → generate a full OM 1.12 Data Contract (`schema` / `semantics` / `qualityExpectations` / `SLA` / `owners`).
-- **Materialize** every quality gate as a real `dataQuality/testCases` POST so the contract is *enforceable*, not decorative.
-- Every gate is tagged with one of OM 1.12's six **dimensional-validation** dimensions — `completeness`, `uniqueness`, `validity`, `accuracy`, `consistency`, `timeliness`.
-- When a contract is violated → AI **classifies** the failure (null spike / unique break / regex / range / row-count drift), drafts the **SQL fix**, and produces a ready-to-merge **GitHub PR description** including the exact dbt files to edit.
-
-> `POST /api/reliability/contract` · `/publish` · `/create-tests` · `/heal` · `POST /webhooks/contract-violation`
-
-### 2. The unexpected piece: **Continuous Data Steward — that writes back to OM**
-A background asyncio loop polls `/api/v1/events`, classifies every change event, and takes **autonomous action**. The kicker: every scan posts a `metaflow.health_score` (0–100, with breakdown) as a **native OpenMetadata custom property** on the table — so judges who open the OM UI see *MetaFlow's verdict alongside the table's own metadata*. Flip it on with `STEWARD_ENABLED=true`, walk away, come back to a digest of what was caught, scored, and tagged.
-
-> `POST /api/steward/start` · `GET /api/steward/state` · `GET /api/steward/digest` · `POST /api/governance/health-score`
-
-### 3. **Schema-drift timeline** (answers the live audience question from the org talk)
-A first-class `/api/governance/schema-drift?entity_fqn=...` endpoint walks OM's native `tables/{id}/versions` API and returns a clean timeline of every column add/drop/rename/type-change with timestamps and changed-by. Build a dashboard on top in one prompt.
-
-### 4. **Real numbers, not screenshots**
-`/api/metrics/scan` walks OM and returns hard numbers — total tables, columns *likely* PII but missing tags, contract coverage %, DQ pass rate, ownership/description coverage. The demo shows judges integers like _"scanned 847 tables, 23 PII gaps, auto-tagged 19, 4 flagged for review"_.
-
-### 5. **Demo Mode** — zero-network demo
-`DEMO_MODE=true` short-circuits every external integration (Slack, Jira, Notion, Google, Email, GitHub) to deterministic fixtures. Stage demo can never fail on a flaky webhook. Same code path, different return — no separate "mock" branch.
-
-### 6. One supervisor across 7 platforms
-*One LangGraph supervisor* delegates to 13 specialist skills across OpenMetadata, GitHub, Slack, Google, Email, Jira, and Notion. Impact-scored RCA, AI test recommender, 14 playbooks — all supporting cast for the headline.
-
-### 7. **"Right answer in fewest tokens"** — measured, not claimed
-Every `om_search_with_preferences` call records how many entities the agent did NOT have to feed to the LLM. Live counter at `/api/metrics/efficiency` (and a banner in the UI) shows _"14,200 tokens avoided · 8 full scans skipped · ~$0.0011 saved"_. Direct response to the org's framing of OM as the way to manage AI spend.
-
-### 8. **Bulk lineage authoring** — the Claude-demo parallel
-The org's hackathon talk closed with a Claude demo adding lineage edges across many tables in one prompt. We ship `bulk-lineage-from-query-logs` as a playbook: read OM's recorded query history, infer source→target pairs from JOIN / INSERT INTO patterns, materialize edges in one batch.
-
-> `GET /api/connector/export` · playbook `bulk-lineage-from-query-logs`
-
-### 9. **Judge Mode** — one flag against the real public sandbox
-`JUDGE_MODE=true` overrides `AI_SDK_HOST` to `sandbox.open-metadata.org`, enables the Steward, and switches off demo fixtures. Judges can run MetaFlow against **real OpenMetadata** without configuring anything.
-
-### 10. **Contributed back to the MCP ecosystem**
-We ship a new MCP tool manifest — `om_apply_health_score` — in [`mcp_contrib/`](mcp_contrib/). Defines a canonical writeback contract for autonomous agents to score OM entities. Direct response to the org's call-out: _"a great idea for the hackathon is taking those tools, adding to them, building on top of them."_
-
-### 11. **AI Studio Personas (publish, don't reinvent)**
-`POST /api/personas/publish` walks every MetaFlow specialist (12 of them) and pushes each one into OM as an **AI Studio persona** via `client.personas.upsert(...)` — name, system prompt, default model, allowed MCP tools, all included. The agents now appear in OM's native AI Studio UI alongside the org's own personas. Falls back to a local registry if the connected SDK build predates personas, so behavior is identical for older OM versions.
-
-> `GET /api/personas` · `POST /api/personas/publish` · `POST /api/personas/{name}/invoke`
-
-### 12. **OAuth 2.0 client-credentials for MCP (auto-refresh)**
-PATs are convenient but they're long-lived and they leak. Set `OM_OAUTH_TOKEN_URL` + `OM_OAUTH_CLIENT_ID` + `OM_OAUTH_CLIENT_SECRET` and MetaFlow runs the standard `client_credentials` grant against your OIDC provider (Okta / Auth0 / Keycloak / Google), caches the access token, and **auto-refreshes 30 seconds before expiry**. Every OM call (governance, lineage, contracts, steward, metrics, insights, native search) goes through the same `build_auth_headers()` helper, so flipping orgs from PAT → OAuth is one config change. `GET /api/system/auth` proves it's live.
-
-### 13. **Server-side multi-turn conversations in OM**
-Set `USE_AI_SDK_CONVERSATIONS=true` and chat history moves from MetaFlow's local SQLite into OM via the AI SDK's Conversations API. Other OM-aware clients (the OM UI, audit dashboards, another agent) can now read the same threads. Falls back transparently to local SQLite if the connected build predates the API — your judges never see a broken endpoint.
+We're framing this as a **contribution to the MCP ecosystem**, not just an app on top of it.
 
 ---
 
-## 📋 OM hackathon wishlist alignment
+## 🏆 Three things that win the demo
 
-We checked the [hackathon wishlist project](https://github.com/orgs/open-metadata/projects) and this submission addresses:
+### 1. Self-healing Data Contracts (the OM 1.12 flagship feature, used end-to-end)
+Walk a table's lineage and profiler stats → generate a full **OM 1.12 Data Contract** with all six dimensional-validation dimensions tagged → materialize every gate as a real `dataQuality/testCases` POST → when violated, AI classifies the failure (null spike / unique break / regex / range / row-count drift), drafts the SQL fix, and produces a **ready-to-merge GitHub PR description** with the exact dbt files to edit.
 
-- **Schema-drift dashboard** (live audience question in the org talk) → `/api/governance/schema-drift`
-- **Search-preference-aware AI** (audience question on boost/verify) → `om_get_search_preferences` + `om_search_with_preferences`
-- **Custom-property writeback** (audience question on custom attributes) → `metaflow_health_score` written by the Steward
-- **MCP tool extensions** (org's #1 call-out) → contributed `om_apply_health_score` manifest
-- **Bulk lineage authoring at scale** (org's closing Claude demo) → `bulk-lineage-from-query-logs` playbook
+> `POST /api/reliability/contract` · `/publish` · `/create-tests` · `/heal`
 
----
+### 2. Continuous Steward → writes health scores back to OpenMetadata
+A background asyncio loop polls `/api/v1/events`, classifies every change event, and PATCHes a **`metaflow_health_score` custom property** onto the affected table. Open OM's native UI → the table page → Custom Properties panel → MetaFlow's verdict is sitting right there alongside the table's own metadata. **No other team's demo will have OM's own UI in it.**
 
-## 🚀 30-second tour
+> `POST /api/steward/start` · `GET /api/steward/digest` · `POST /api/governance/health-score`
+
+### 3. One-flag Judge Mode against the real public sandbox
+`JUDGE_MODE=true docker compose up` → MetaFlow points at `https://sandbox.open-metadata.org`, auto-enables the Steward, and protects the shared sandbox with **dry-run writes** (so judges see exactly what would be PATCHed without polluting other people's view). One curl proves it all works:
 
 ```bash
-# 1. Boot in demo mode (no external creds needed)
-DEMO_MODE=true STEWARD_ENABLED=true docker compose up
+curl http://localhost:8000/api/system/judge-check | jq
+# → list of 9 checks (OM reachable, auth, LLM, orchestrator, schema-drift,
+#   metrics scan, health-score writeback dry-run, steward, mcp_contrib)
+```
 
-# 2. Headline: generate + publish a self-healing contract
-curl http://localhost:8000/api/reliability/contract?entity_fqn=warehouse.analytics.daily_revenue
+---
 
-# 3. Watch the autonomous Steward (auto-started above)
-sleep 90 && curl http://localhost:8000/api/steward/digest
+## 🚀 Quick start
 
-# 4. Schema-drift timeline (answers the org's live audience question)
-curl "http://localhost:8000/api/governance/schema-drift?entity_fqn=warehouse.crm.customers"
+### Judge Mode (zero config — runs against the real public sandbox)
 
-# 5. Write a MetaFlow health score back to OM as a native custom property
-curl -X POST http://localhost:8000/api/governance/health-score \
-  -H 'content-type: application/json' \
-  -d '{"entity_fqn":"warehouse.crm.customers","score":87,"breakdown":{"contract":1.0,"pii":0.8,"dq":0.9}}'
+```bash
+# Set your OM sandbox PAT (login at sandbox.open-metadata.org → profile → Access Tokens)
+export OM_TOKEN=eyJraWQ...
+export GOOGLE_API_KEY=your-gemini-key   # free at aistudio.google.com/apikey
 
-# 6. Real-data scan — hard numbers, no screenshots
+JUDGE_MODE=true docker compose up
+
+# 1. Confirm everything is wired (the FIRST thing a judge should run)
+curl http://localhost:8000/api/system/judge-check | jq
+
+# 2. The headline — generate a self-healing contract
+curl http://localhost:8000/api/reliability/contract?entity_fqn=sample_data.ecommerce_db.shopify.dim_customer
+
+# 3. Schema-drift timeline (answers the org's live audience question)
+curl "http://localhost:8000/api/governance/schema-drift?entity_fqn=sample_data.ecommerce_db.shopify.dim_customer"
+
+# 4. Hard numbers from the real catalog
 curl http://localhost:8000/api/metrics/scan
 
-# 7. Token-efficiency snapshot (proof we don't full-scan the warehouse)
-curl http://localhost:8000/api/metrics/efficiency
-
-# 8. Mode banner — judges see this in the UI on boot
-curl http://localhost:8000/api/system/info
-
-# 9. MetaFlow as a virtual OM connector (export envelope)
-curl http://localhost:8000/api/connector/export
-
-# 10. Auth introspection — proves OAuth refresh is live (or PAT mode)
-curl http://localhost:8000/api/system/auth
-
-# 11. Publish all 12 MetaFlow specialists into OM as AI Studio personas
-curl -X POST http://localhost:8000/api/personas/publish
-
-# 12. Invoke a single persona (server-side or local fallback)
-curl -X POST "http://localhost:8000/api/personas/metaflow.discovery_agent/invoke?message=find+pii+tables"
+# 5. Watch the Steward fill its digest (auto-started in Judge Mode)
+sleep 90 && curl http://localhost:8000/api/steward/digest
 ```
 
 Open http://localhost:5173 → click **Contract Copilot** in the sidebar.
 
-> 💡 **Judge Mode (one flag):** `JUDGE_MODE=true docker compose up` — points at `sandbox.open-metadata.org`, enables the Steward, runs against **real OpenMetadata** with no fixtures.
+> 💡 **Sandbox protection:** when Judge Mode is pointed at the public sandbox, write operations (health-score PATCH, custom-property registration) become **dry-runs** — the response shows what *would* have been PATCHed, with full URL and payload, but doesn't actually mutate shared data. To run for real against your own OM, set `JUDGE_DRY_RUN=false` (or just don't use `JUDGE_MODE`).
+
+### Demo Mode (no OM, no network)
+
+```bash
+DEMO_MODE=true STEWARD_ENABLED=true docker compose up
+# Every external integration short-circuits to deterministic fixtures —
+# the demo can never fail on a flaky webhook mid-pitch.
+```
+
+---
+
+## 📋 Hackathon wishlist alignment
+
+This submission directly addresses items the OM team has called out:
+
+- **Schema-drift dashboard** (live audience question in the org talk) → `/api/governance/schema-drift`
+- **MCP tool extensions** (Nick's #1 call-out) → contributed [`om_apply_health_score`](mcp_contrib/) manifest
+- **Custom-property writeback** (audience question on custom attributes) → `metaflow_health_score` written by the Steward
+- **Search-preference-aware AI** (audience question on boost/verify) → `om_get_search_preferences` + `om_search_with_preferences`
+- **Bulk lineage authoring** (Nick's closing Claude-demo parallel) → `bulk-lineage-from-query-logs` playbook
+
+---
+
+<details>
+<summary>📚 <b>More features (the supporting cast)</b></summary>
+
+The three headlines above are what we'll demo. The features below are real and shipped, but they're supporting cast — open this section if you want to see how deep the rest of the platform goes.
+
+- **One supervisor across 7 platforms** — LangGraph orchestrator delegates to 12 specialists across OpenMetadata, GitHub, Slack, Google, Email, Jira, and Notion (14 playbooks total).
+- **Real-data metrics scan** — `/api/metrics/scan` returns hard numbers (PII gaps, contract coverage %, DQ pass rate, ownership %) instead of screenshots.
+- **"Right answer in fewest tokens"** — `/api/metrics/efficiency` shows a live counter of tokens NOT sent to the LLM thanks to OM-native filtering. Direct response to OM's framing as the way to manage AI spend.
+- **AI Studio Persona publishing** — `POST /api/personas/publish` upserts every MetaFlow specialist into OM as a native Persona via `client.personas.upsert`. Falls back to a local registry on older OM builds.
+- **OAuth 2.0 client-credentials with auto-refresh** — set `OM_OAUTH_*` to swap the long-lived PAT for short-lived OAuth tokens (Okta / Auth0 / Keycloak / Google). All OM calls go through `build_auth_headers()` so it's a config-only flip. `GET /api/system/auth` proves it.
+- **Server-side multi-turn conversations** — `USE_AI_SDK_CONVERSATIONS=true` moves chat history from local SQLite into OM via the AI SDK's Conversations API. Falls back transparently if the connected build predates it.
+- **Virtual OM connector export** — `GET /api/connector/export` frames MetaFlow's outputs in an OM-ingestion envelope, so downstream pipelines can consume our autonomous decisions as a metadata source.
+- **Webhook auto-triage** — `POST /api/webhooks/openmetadata` auto-routes DQ failures into the DQ Fire Drill playbook and schema changes into Impact Radar.
+
+</details>
+
+---
+
+## 🧭 Mapped to OpenMetadata's three pillars
+
+| Pillar | What MetaFlow contributes | Endpoints / Tools |
+|---|---|---|
+| **🔎 Data Discovery** | `semantic_search`-first prompt, "right answer in fewest tokens" filtering, OM search-preference aware | `chat`, `om_search_with_preferences` |
+| **📡 Data Observability** | Self-healing OM 1.12 Data Contracts, schema-drift timeline from native `versions/` API, Continuous Steward on `/api/v1/events` | `/api/reliability/contract`, `/api/governance/schema-drift`, `/api/steward/*` |
+| **🛡️ Data Governance** | Autonomous PII tagging + glossary creation. Every Steward scan **PATCHes a `metaflow_health_score` custom property back to the entity in OM** — visible in OM's UI. | `/api/governance/health-score`, `om_governance_tools` |
+
+
 
 ---
 

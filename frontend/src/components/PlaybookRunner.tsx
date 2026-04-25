@@ -22,9 +22,32 @@ import {
   BarChart3,
   Square,
   PartyPopper,
+  Cpu,
+  Bot,
+  Send,
 } from "lucide-react";
 import type { PlaybookInfo } from "../lib/types";
 import { streamPlaybook } from "../lib/api";
+import MiniFlow, { type FlowNodeSpec, type FlowEdgeSpec } from "./MiniFlow";
+
+const PLAYBOOK_FLOW_NODES: FlowNodeSpec[] = [
+  { id: "input", tone: "input", label: "Your Input", sublabel: "FQN / prompt", icon: Send, col: 0 },
+  { id: "supervisor", tone: "process", label: "Supervisor", sublabel: "route to agents", icon: Cpu, col: 1 },
+  { id: "discover", tone: "agent", label: "Discovery", sublabel: "OM tools", icon: Bot, col: 2, row: 0 },
+  { id: "dq", tone: "agent", label: "Data Quality", sublabel: "DQ tools", icon: Bot, col: 2, row: 1 },
+  { id: "gov", tone: "agent", label: "Governance", sublabel: "PII / lineage", icon: Bot, col: 2, row: 2 },
+  { id: "result", tone: "output", label: "Result", sublabel: "streamed steps", icon: PartyPopper, col: 3 },
+];
+
+const PLAYBOOK_FLOW_EDGES: FlowEdgeSpec[] = [
+  { from: "input", to: "supervisor" },
+  { from: "supervisor", to: "discover", label: "route" },
+  { from: "supervisor", to: "dq", dashed: true },
+  { from: "supervisor", to: "gov", dashed: true },
+  { from: "discover", to: "result" },
+  { from: "dq", to: "result" },
+  { from: "gov", to: "result" },
+];
 
 const ICON_MAP: Record<string, typeof Target> = {
   "impact-radar": Target,
@@ -40,7 +63,46 @@ const ICON_MAP: Record<string, typeof Target> = {
   "full-incident-response": Workflow,
   "dq-test-recommender": Sparkles,
   "platform-health-kpi": BarChart3,
+  "contract-copilot": ShieldCheck,
+  "bulk-lineage-from-query-logs": GitBranch,
 };
+
+const DEFAULT_TABLE_FQN = "sample_db_service.ecommerce_db.shopify.dim_customer";
+const DEFAULT_TEST_FQN = `${DEFAULT_TABLE_FQN}.email.regex_email`;
+
+function defaultInputFor(playbookId: string) {
+  if (
+    [
+      "dq-fire-drill",
+      "dq-report-notify",
+      "dq-sheet-alert",
+      "dq-jira-email",
+    ].includes(playbookId)
+  ) {
+    return DEFAULT_TEST_FQN;
+  }
+  if (playbookId === "full-incident-response") {
+    return `Null rate on ${DEFAULT_TABLE_FQN}.customer_id exceeded threshold`;
+  }
+  if (playbookId === "impact-radar") {
+    return `Dropping column email from ${DEFAULT_TABLE_FQN}`;
+  }
+  if (playbookId === "bulk-lineage-from-query-logs") {
+    return "sample_db_service";
+  }
+  if (
+    [
+      "pii-sweep",
+      "metadata-health",
+      "pii-track-notify",
+      "metadata-audit-doc",
+      "platform-health-kpi",
+    ].includes(playbookId)
+  ) {
+    return "sample_db_service.ecommerce_db.shopify";
+  }
+  return DEFAULT_TABLE_FQN;
+}
 
 interface StepResult {
   description: string;
@@ -54,7 +116,7 @@ interface Props {
 }
 
 export default function PlaybookRunner({ playbook, onBack }: Props) {
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => defaultInputFor(playbook.id));
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<StepResult[]>([]);
   const [runError, setRunError] = useState<string | null>(null);
@@ -78,8 +140,15 @@ export default function PlaybookRunner({ playbook, onBack }: Props) {
     return () => { ctrl?.abort(); };
   }, []);
 
+  useEffect(() => {
+    setInput(defaultInputFor(playbook.id));
+    setSteps([]);
+    setRunError(null);
+    setCompleted(false);
+  }, [playbook.id]);
+
   const handleRun = async () => {
-    const text = input.trim();
+    const text = input.trim() || defaultInputFor(playbook.id);
     if (!text || running) return;
 
     setRunning(true);
@@ -127,6 +196,10 @@ export default function PlaybookRunner({ playbook, onBack }: Props) {
           }
           return updated;
         });
+        setRunning(false);
+      }
+      if (event.type === "playbook_done") {
+        setCompleted(true);
       }
     }, controller.signal);
     } catch (err) {
@@ -197,7 +270,7 @@ export default function PlaybookRunner({ playbook, onBack }: Props) {
           ) : (
             <button
               onClick={handleRun}
-              disabled={!input.trim()}
+              disabled={!input.trim() && !defaultInputFor(playbook.id)}
               className="rounded-2xl bg-gradient-to-r from-brand-500 to-brand-600 px-6 py-3 text-white text-sm font-semibold
                          hover:from-brand-400 hover:to-brand-500 disabled:opacity-30 transition-all duration-300 flex items-center gap-2 shadow-glow"
             >
@@ -233,6 +306,9 @@ export default function PlaybookRunner({ playbook, onBack }: Props) {
       {/* Timeline */}
       <div className="flex-1 overflow-y-auto bg-radial-subtle">
         <div className="max-w-3xl mx-auto px-6 py-6 space-y-4">
+          {/* Pipeline diagram */}
+          <MiniFlow nodes={PLAYBOOK_FLOW_NODES} edges={PLAYBOOK_FLOW_EDGES} height={320} />
+
           {steps.map((step, idx) => (
             <div key={idx} className="flex gap-4 animate-fade-up" style={{ animationDelay: `${idx * 0.1}s` }}>
               <div className="mt-1 shrink-0">
@@ -290,7 +366,7 @@ export default function PlaybookRunner({ playbook, onBack }: Props) {
               </div>
               <button
                 onClick={handleRun}
-                disabled={running || !input.trim()}
+                disabled={running || (!input.trim() && !defaultInputFor(playbook.id))}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl glass hover:bg-white/[0.04] text-zinc-400 hover:text-brand-400 text-sm transition-all duration-300 disabled:opacity-40"
               >
                 <RotateCcw size={14} /> Retry

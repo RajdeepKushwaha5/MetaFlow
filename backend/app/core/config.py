@@ -14,10 +14,11 @@ class Settings(BaseSettings):
     ai_sdk_host: str = "http://localhost:8585"
     ai_sdk_token: str = ""
 
-    # LLM (Google Gemini / OpenAI)
-    llm_provider: str = "gemini"  # "gemini" or "openai"
+    # LLM (Google Gemini / OpenAI / Anthropic)
+    llm_provider: str = "gemini"  # "gemini" | "openai" | "anthropic"
     google_api_key: str = ""
     openai_api_key: str = ""
+    anthropic_api_key: str = ""
     llm_model: str = "gemini-2.5-flash"
 
     # Optional integrations
@@ -60,6 +61,11 @@ class Settings(BaseSettings):
     # and pre-enables the demo-friendly toggles.
     judge_mode: bool = False
     sandbox_host: str = "https://sandbox.open-metadata.org"
+    # When true, write operations against the public sandbox are turned into
+    # dry-runs so MetaFlow never PATCHes shared judge-visible data. Auto-on
+    # when judge_mode + host is the public sandbox; can be forced on/off.
+    # Leave as None to auto-detect based on judge_mode + sandbox host.
+    judge_dry_run: bool | None = None
 
     # OAuth 2.0 client-credentials for OpenMetadata MCP / REST.
     # When all three of token_url/client_id/client_secret are set, MetaFlow
@@ -78,12 +84,36 @@ class Settings(BaseSettings):
 
 
 def _apply_judge_mode(s: "Settings") -> "Settings":
-    """If JUDGE_MODE=true, override host + enable steward (real data, autonomous)."""
+    """Apply judge defaults without clobbering an explicit local OM host.
+
+    Hackathon judging can happen in two real-data modes:
+    - public sandbox: no AI_SDK_HOST override, so use SANDBOX_HOST
+    - local Docker: AI_SDK_HOST points at openmetadata-server, so preserve it
+    """
     if s.judge_mode:
-        # Keep DEMO_MODE off so judges see a REAL OM (the public sandbox).
-        s.ai_sdk_host = s.sandbox_host
+        # Keep DEMO_MODE off so judges see a REAL OM target.
+        s.demo_mode = False
+        if s.ai_sdk_host in ("", "http://localhost:8585"):
+            s.ai_sdk_host = s.sandbox_host
         s.steward_enabled = True
     return s
+
+
+def is_public_sandbox() -> bool:
+    """True when the active OM host is OpenMetadata's shared public sandbox."""
+    return "sandbox.open-metadata.org" in (settings.ai_sdk_host or "")
+
+
+def is_dry_run() -> bool:
+    """True when MetaFlow should NOT make destructive writes against OM.
+
+    Auto-on whenever we're pointed at the shared public sandbox in judge mode
+    (so we don't PATCH data that other judges / spectators are looking at).
+    Can be forced via ``JUDGE_DRY_RUN=true`` / ``false``.
+    """
+    if settings.judge_dry_run is not None:
+        return bool(settings.judge_dry_run)
+    return bool(settings.judge_mode and is_public_sandbox())
 
 
 settings = _apply_judge_mode(Settings())

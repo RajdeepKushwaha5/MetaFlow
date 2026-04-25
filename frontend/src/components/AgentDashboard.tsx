@@ -116,36 +116,63 @@ export default function AgentDashboard() {
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
           {/* Health status card */}
-          <div className="glass rounded-xl md:rounded-2xl p-4 md:p-5 card-interactive animate-fade-up group col-span-2 md:col-span-4">
-            <div className="flex items-center gap-3">
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 ${
-                healthLoading
-                  ? "bg-white/[0.04] border border-white/[0.06]"
-                  : health?.status === "ok" || health?.status === "healthy"
-                    ? "bg-brand-500/10 border border-brand-500/15"
-                    : "bg-red-500/10 border border-red-500/15"
-              }`}>
-                {healthLoading ? (
-                  <Loader2 size={15} className="text-zinc-500 animate-spin" />
-                ) : health?.status === "ok" || health?.status === "healthy" ? (
-                  <Heart size={15} className="text-brand-400" />
-                ) : (
-                  <WifiOff size={15} className="text-red-400" />
+          {(() => {
+            const s = health?.status;
+            const isHealthy = s === "ok" || s === "healthy";
+            const isDegraded = s === "degraded";
+            const isReachable = isHealthy || isDegraded;
+            let title = "System Unreachable";
+            let subtitle = "Backend is not responding";
+            if (healthLoading) {
+              title = "Checking...";
+              subtitle = "Connecting to backend";
+            } else if (isHealthy) {
+              title = "System Healthy";
+              subtitle = "All services operational";
+            } else if (isDegraded) {
+              const down = (health as { components?: Array<{ name: string; status: string }> })?.components
+                ?.filter((c) => c.status !== "ok")
+                .map((c) => c.name)
+                .join(", ");
+              title = "System Degraded";
+              subtitle = down ? `Running on fallbacks — ${down} unavailable` : "Running with some services offline";
+            }
+            let boxBg = "bg-red-500/10 border border-red-500/15";
+            let dotBg = "bg-red-400";
+            let iconEl = <WifiOff size={15} className="text-red-400" />;
+            if (healthLoading) {
+              boxBg = "bg-white/[0.04] border border-white/[0.06]";
+              dotBg = "bg-zinc-600";
+              iconEl = <Loader2 size={15} className="text-zinc-500 animate-spin" />;
+            } else if (isHealthy) {
+              boxBg = "bg-brand-500/10 border border-brand-500/15";
+              dotBg = "bg-brand-400 animate-pulse";
+              iconEl = <Heart size={15} className="text-brand-400" />;
+            } else if (isDegraded) {
+              boxBg = "bg-amber-500/10 border border-amber-500/20";
+              dotBg = "bg-amber-400 animate-pulse";
+              iconEl = <AlertCircle size={15} className="text-amber-400" />;
+            }
+            return (
+              <div className="glass rounded-xl md:rounded-2xl p-4 md:p-5 card-interactive animate-fade-up group col-span-2 md:col-span-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 ${boxBg}`}>
+                    {iconEl}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-zinc-200">{title}</p>
+                    <p className="text-[11px] text-zinc-500">{subtitle}</p>
+                  </div>
+                  <div className={`w-2 h-2 rounded-full ${dotBg}`} />
+                </div>
+                {isReachable && !isHealthy && (
+                  <p className="text-[10px] text-zinc-600 mt-2 pl-12">
+                    This is expected in DEMO_MODE without an OpenMetadata sandbox — the app uses fallback fixtures.
+                  </p>
                 )}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-semibold text-zinc-200">
-                  {healthLoading ? "Checking..." : health?.status === "ok" || health?.status === "healthy" ? "System Healthy" : "System Unreachable"}
-                </p>
-                <p className="text-[11px] text-zinc-500">
-                  {healthLoading ? "Connecting to backend" : health?.status === "ok" || health?.status === "healthy" ? "All services operational" : "Backend is not responding"}
-                </p>
-              </div>
-              <div className={`w-2 h-2 rounded-full ${
-                healthLoading ? "bg-zinc-600" : health?.status === "ok" || health?.status === "healthy" ? "bg-brand-400 animate-pulse" : "bg-red-400"
-              }`} />
-            </div>
-          </div>
+            );
+          })()}
 
           {[
             { icon: Activity, label: "Conversations", value: stats.total_conversations },

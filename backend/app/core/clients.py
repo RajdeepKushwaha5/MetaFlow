@@ -11,6 +11,13 @@ from langchain_openai import ChatOpenAI
 
 from app.core.config import settings
 
+try:
+    from langchain_anthropic import ChatAnthropic  # type: ignore
+    _HAS_ANTHROPIC = True
+except ImportError:  # pragma: no cover
+    ChatAnthropic = None  # type: ignore
+    _HAS_ANTHROPIC = False
+
 # Supported models per provider
 PROVIDER_MODELS: dict[str, list[str]] = {
     "gemini": [
@@ -28,6 +35,13 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "o1",
         "o1-mini",
         "o3-mini",
+    ],
+    "anthropic": [
+        "claude-opus-4-20250514",
+        "claude-sonnet-4-20250514",
+        "claude-3-5-sonnet-latest",
+        "claude-3-5-haiku-latest",
+        "claude-3-opus-latest",
     ],
 }
 
@@ -52,6 +66,17 @@ def _build_llm() -> BaseChatModel:
         return ChatOpenAI(
             model=model,
             api_key=settings.openai_api_key,
+            streaming=True,
+        )
+    if provider == "anthropic":
+        if not _HAS_ANTHROPIC or ChatAnthropic is None:
+            raise RuntimeError(
+                "Anthropic provider selected but 'langchain-anthropic' is not installed. "
+                "Install it with: pip install langchain-anthropic"
+            )
+        return ChatAnthropic(
+            model=model,
+            api_key=settings.anthropic_api_key,
             streaming=True,
         )
     # Default: gemini

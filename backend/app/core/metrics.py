@@ -1,9 +1,8 @@
 """Real-data metrics scanner.
 
 Walks the OpenMetadata REST API and computes hard numbers used by the
-demo: tables scanned, PII gaps, contract coverage, DQ pass rate,
-ownership / description coverage. Falls back to deterministic demo
-fixtures when ``settings.demo_mode`` is on or OM is unreachable.
+Operations page: tables scanned, PII gaps, contract coverage, DQ pass rate,
+ownership / description coverage.
 """
 
 from __future__ import annotations
@@ -44,8 +43,33 @@ def _column_has_pii_tag(col: dict) -> bool:
     return False
 
 
+def _latest_test_status(test_case: dict) -> str:
+    result = test_case.get("testCaseResult") or {}
+    status = result.get("testCaseStatus") or ""
+    if status:
+        return str(status)
+
+    fqn = test_case.get("fullyQualifiedName")
+    if not fqn:
+        return ""
+    try:
+        latest = _om_get(
+            f"/api/v1/dataQuality/testCases/testCaseResults/{fqn}",
+            {"limit": 1},
+            timeout=10,
+        )
+        rows = latest.get("data") or []
+        if rows:
+            return str(rows[0].get("testCaseStatus") or "")
+    except Exception:
+        return ""
+    return ""
+
+
 def _column_looks_pii(col: dict) -> bool:
     name = (col.get("name") or "").lower()
+    if "consent" in name or name.endswith("_status") or name.endswith("_state"):
+        return False
     return bool(PII_NAME_PATTERNS.search(name))
 
 
@@ -98,6 +122,14 @@ def scan_metrics(sample_tables: int = 200) -> dict[str, Any]:
     if is_demo():
         return _demo_metrics()
 
+    if not settings.ai_sdk_token:
+        return {
+            "demo": False,
+            "ok": False,
+            "scanned_at": int(time.time()),
+            "error": "AI_SDK_TOKEN is not configured; cannot scan OpenMetadata.",
+        }
+
     try:
         # ---- totals via paging.total ----
         tables = _om_get("/api/v1/tables", {"limit": 0})
@@ -114,7 +146,7 @@ def scan_metrics(sample_tables: int = 200) -> dict[str, Any]:
         # ---- sample tables for column inspection + ownership ----
         sample = _om_get(
             "/api/v1/tables",
-            {"limit": min(sample_tables, 1000), "fields": "owner,columns,tags"},
+            {"limit": min(sample_tables, 1000), "fields": "owners,columns,tags"},
         )
         rows = sample.get("data", [])
 
@@ -138,7 +170,7 @@ def scan_metrics(sample_tables: int = 200) -> dict[str, Any]:
         )
         passing = failing = 0
         for tc in tests_page.get("data", []):
-            res = (tc.get("testCaseResult") or {}).get("testCaseStatus") or ""
+            res = _latest_test_status(tc)
             if res.lower() == "success":
                 passing += 1
             elif res.lower() == "failed":
@@ -149,6 +181,7 @@ def scan_metrics(sample_tables: int = 200) -> dict[str, Any]:
         sample_n = max(1, len(rows))
         return {
             "demo": False,
+            "ok": True,
             "scanned_at": int(time.time()),
             "totals": {
                 "tables": total_tables,
@@ -184,7 +217,9 @@ def scan_metrics(sample_tables: int = 200) -> dict[str, Any]:
             },
         }
     except Exception as exc:
-        out = _demo_metrics()
-        out["demo"] = True
-        out["fallback_reason"] = f"OM scan failed: {exc}"
-        return out
+        return {
+            "demo": False,
+            "ok": False,
+            "scanned_at": int(time.time()),
+            "error": f"OM scan failed: {exc}",
+        }

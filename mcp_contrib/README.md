@@ -35,3 +35,19 @@ registry. The shape matches OM's existing tool definitions; the
 `implementation.kind = "rest-bridge"` field tells the MCP server to
 proxy the call to the MetaFlow backend (or any equivalent
 implementation) instead of running Java logic directly.
+
+## Verifying against the public sandbox
+
+Run the one-shot judge probe — it confirms the manifest is discoverable,
+the reference impl is wired, and the writeback works end-to-end (as a
+**dry-run** when pointed at the shared public sandbox so we don't
+PATCH data other people are looking at):
+
+```bash
+JUDGE_MODE=true docker compose up
+curl http://localhost:8000/api/system/judge-check | jq
+```
+
+The probe reports green/red for: OM reachability, auth, LLM, orchestrator,
+schema-drift, metrics scan, **health-score writeback (dry-run on sandbox)**,
+Steward state, and `mcp_contrib` manifest discovery.

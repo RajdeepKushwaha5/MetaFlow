@@ -38,6 +38,8 @@ const ICON_MAP: Record<string, typeof Target> = {
   "full-incident-response": Workflow,
   "dq-test-recommender": Sparkles,
   "platform-health-kpi": BarChart3,
+  "contract-copilot": ShieldCheck,
+  "bulk-lineage-from-query-logs": GitBranch,
 };
 
 // Categorize playbooks

@@ -119,8 +119,10 @@ class LLMSettingsResponse(BaseModel):
     model: str
     gemini_key_set: bool
     openai_key_set: bool
+    anthropic_key_set: bool = False
     gemini_models: list[str]
     openai_models: list[str]
+    anthropic_models: list[str] = []
 
 
 class LLMSettingsUpdate(BaseModel):
@@ -130,6 +132,7 @@ class LLMSettingsUpdate(BaseModel):
     model: str | None = None
     gemini_key: str | None = None
     openai_key: str | None = None
+    anthropic_key: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +181,23 @@ class HealthScoreRequest(BaseModel):
     entity_fqn: str
     score: int  # 0-100
     breakdown: dict[str, float] | None = None
+
+
+class EntityDescriptionRequest(BaseModel):
+    """Patch an entity description in OpenMetadata."""
+
+    entity_fqn: str
+    description: str
+    entity_type: str = "tables"
+
+
+class GlossaryAuthoringRequest(BaseModel):
+    """Create a glossary and a first term in OpenMetadata."""
+
+    glossary_name: str
+    glossary_description: str
+    term_name: str
+    term_description: str
 
 
 # ---------------------------------------------------------------------------

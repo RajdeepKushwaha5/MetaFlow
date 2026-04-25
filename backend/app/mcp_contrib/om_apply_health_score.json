@@ -1,0 +1,26 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schema/v1/tool",
+  "name": "om_apply_health_score",
+  "title": "Apply MetaFlow Health Score",
+  "description": "Write a 0-100 health score and per-dimension breakdown back to an OpenMetadata entity as a native custom property (`metaflow_health_score` on the entity's `extension` block). Idempotently registers the custom property on the entity type the first time it's used.",
+  "version": "0.1.0",
+  "author": "metaflow",
+  "categories": ["openmetadata", "governance", "data-quality"],
+  "tags": ["om", "openmetadata", "custom-property", "health-score", "writeback"],
+  "inputSchema": {
+    "type": "object",
+    "required": ["entity_fqn", "score"],
+    "properties": {
+      "entity_fqn": {"type": "string"},
+      "score": {"type": "integer", "minimum": 0, "maximum": 100},
+      "breakdown": {
+        "type": "object",
+        "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    }
+  },
+  "implementation": {
+    "kind": "rest-bridge",
+    "endpoint": "POST /api/governance/health-score"
+  }
+}

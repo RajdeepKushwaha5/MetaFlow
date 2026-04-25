@@ -15,16 +15,32 @@ import {
   Eye,
   Sparkles,
   Shield,
+  Database,
+  BarChart3,
 } from "lucide-react";
 import { fetchRecommendations, createTestCase } from "../lib/api";
 import type { DqRecommendation, DqRecommendationList } from "../lib/types";
+import MiniFlow, { type FlowNodeSpec, type FlowEdgeSpec } from "./MiniFlow";
+
+const RECOMMENDER_FLOW_NODES: FlowNodeSpec[] = [
+  { id: "table", tone: "data", label: "Target Table", sublabel: "FQN input", icon: Database, col: 0 },
+  { id: "profile", tone: "process", label: "Profiler Stats", sublabel: "nulls / dist / patterns", icon: BarChart3, col: 1 },
+  { id: "agent", tone: "agent", label: "Test Recommender", sublabel: "draft DQ rules", icon: Sparkles, col: 2 },
+  { id: "create", tone: "output", label: "Materialize Tests", sublabel: "OM test cases", icon: Shield, col: 3 },
+];
+
+const RECOMMENDER_FLOW_EDGES: FlowEdgeSpec[] = [
+  { from: "table", to: "profile" },
+  { from: "profile", to: "agent", label: "context" },
+  { from: "agent", to: "create" },
+];
 
 interface Props {
   initialTableFqn?: string;
 }
 
 export default function TestRecommender({
-  initialTableFqn = "warehouse.analytics.orders",
+  initialTableFqn = "sample_db_service.ecommerce_db.shopify.dim_customer",
 }: Readonly<Props>) {
   const [tableFqn, setTableFqn] = useState(initialTableFqn);
   const [input, setInput] = useState(initialTableFqn);
@@ -119,12 +135,15 @@ export default function TestRecommender({
         </form>
         {data?.demo && (
           <span className="px-2 py-1 text-[10px] uppercase tracking-wider bg-zinc-700/50 text-zinc-400 rounded border border-zinc-600/40 font-mono">
-            demo mode
+            offline fallback
           </span>
         )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
+        <div className="max-w-5xl mx-auto mb-6">
+          <MiniFlow nodes={RECOMMENDER_FLOW_NODES} edges={RECOMMENDER_FLOW_EDGES} height={200} />
+        </div>
         {loading && (
           <div className="flex items-center justify-center py-16">
             <Loader2 size={24} className="animate-spin text-brand-400" />

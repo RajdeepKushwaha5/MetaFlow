@@ -53,6 +53,7 @@ class StewardState:
 
 _state = StewardState()
 _task: asyncio.Task | None = None
+_seen_event_keys: set[str] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +160,10 @@ async def _poll_once() -> None:
         classified = _classify(raw)
         if classified is None:
             continue
+        key = _event_key(classified)
+        if key in _seen_event_keys:
+            continue
+        _seen_event_keys.add(key)
         _state.events_seen += 1
         _state.events.append(classified)
         action = await _maybe_act(classified)
@@ -168,7 +173,7 @@ async def _poll_once() -> None:
 
 
 async def _fetch_events() -> list[dict]:
-    """Pull recent OM change events. In demo mode, synthesize them."""
+    """Pull recent OM change events, with live OM probes as a local fallback."""
     if is_demo():
         return _demo_events(_state.polls)
 
@@ -185,11 +190,142 @@ async def _fetch_events() -> list[dict]:
                 params={"timestamp": int(datetime.now(timezone.utc).timestamp() * 1000) - 60_000},
             )
         if resp.status_code != 200:
-            return []
+            return await _fetch_openmetadata_signals(headers)
         data = resp.json()
-        return data.get("data") or data.get("events") or []
+        events = data.get("data") or data.get("events") or []
+        if events:
+            return events
+        return await _fetch_openmetadata_signals(headers)
     except Exception:
-        return []
+        return await _fetch_openmetadata_signals(headers)
+
+
+async def _fetch_openmetadata_signals(headers: dict[str, str]) -> list[dict]:
+    """Derive steward events from live OM objects when changeEvents is quiet."""
+    base = settings.ai_sdk_host.rstrip("/")
+    now = datetime.now(timezone.utc).isoformat()
+    out: list[dict] = []
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            tests = await client.get(
+                f"{base}/api/v1/dataQuality/testCases",
+                headers=headers,
+                params={"limit": 25, "fields": "testCaseResult"},
+            )
+            if tests.status_code == 200:
+                for tc in tests.json().get("data", []):
+                    result = tc.get("testCaseResult") or {}
+                    status = result.get("testCaseStatus")
+                    if not status:
+                        status = await _latest_test_status(client, headers, tc.get("fullyQualifiedName"))
+                    if not status:
+                        continue
+                    table_fqn = _table_fqn_from_test_case(tc)
+                    title = (
+                        f"DQ test {status}: {tc.get('name') or tc.get('fullyQualifiedName')}"
+                    )
+                    out.append({
+                        "eventType": "testCaseResult",
+                        "entityFullyQualifiedName": table_fqn,
+                        "title": title,
+                        "summary": result.get("result") or title,
+                        "status": status,
+                        "ts": now,
+                        "source": "openmetadata-test-results",
+                    })
+        except Exception as exc:
+            _logger.debug("Steward DQ probe failed: %s", exc)
+
+        try:
+            tables = await client.get(
+                f"{base}/api/v1/tables",
+                headers=headers,
+                params={"limit": 25, "fields": "owners,columns,tags,extension"},
+            )
+            if tables.status_code == 200:
+                for table in tables.json().get("data", []):
+                    fqn = table.get("fullyQualifiedName") or table.get("name") or ""
+                    if table.get("owners") or table.get("owner"):
+                        out.append({
+                            "eventType": "ownerVerified",
+                            "entityFullyQualifiedName": fqn,
+                            "title": f"Owner present on {fqn}",
+                            "status": "success",
+                            "ts": now,
+                            "source": "openmetadata-table-scan",
+                        })
+                    tagged_cols = [
+                        c.get("name")
+                        for c in table.get("columns", [])
+                        if any(
+                            "pii" in str(t.get("tagFQN") or t.get("name") or "").lower()
+                            for t in c.get("tags", [])
+                        )
+                    ]
+                    if tagged_cols:
+                        out.append({
+                            "eventType": "tagApplied",
+                            "entityFullyQualifiedName": fqn,
+                            "title": f"PII tags confirmed on {', '.join(tagged_cols[:3])}",
+                            "status": "success",
+                            "ts": now,
+                            "source": "openmetadata-table-scan",
+                        })
+                    if table.get("extension", {}).get("metaflow_health_score"):
+                        out.append({
+                            "eventType": "healthScoreWriteback",
+                            "entityFullyQualifiedName": fqn,
+                            "title": "Health score custom property present in OpenMetadata",
+                            "status": "success",
+                            "ts": now,
+                            "source": "openmetadata-table-scan",
+                        })
+        except Exception as exc:
+            _logger.debug("Steward table probe failed: %s", exc)
+
+    return out
+
+
+async def _latest_test_status(
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    test_fqn: str | None,
+) -> str:
+    if not test_fqn:
+        return ""
+    base = settings.ai_sdk_host.rstrip("/")
+    try:
+        resp = await client.get(
+            f"{base}/api/v1/dataQuality/testCases/testCaseResults/{test_fqn}",
+            headers=headers,
+            params={"limit": 1},
+        )
+        if resp.status_code != 200:
+            return ""
+        rows = resp.json().get("data") or []
+        return str(rows[0].get("testCaseStatus") or "") if rows else ""
+    except Exception:
+        return ""
+
+
+def _table_fqn_from_test_case(test_case: dict) -> str:
+    link = str(test_case.get("entityLink") or "")
+    marker = "<#E::table::"
+    if link.startswith(marker):
+        return link[len(marker):].split("::", 1)[0].rstrip(">")
+    fqn = str(test_case.get("fullyQualifiedName") or "")
+    if ".columns." in fqn:
+        return fqn.split(".columns.", 1)[0]
+    parts = fqn.split(".")
+    return ".".join(parts[:-1]) if len(parts) > 1 else fqn
+
+
+def _event_key(event: dict) -> str:
+    return "|".join(
+        str(event.get(k) or "")
+        for k in ("raw_type", "entity_fqn", "title", "severity")
+    )
 
 
 def _classify(raw: dict) -> dict | None:
@@ -210,7 +346,10 @@ def _classify(raw: dict) -> dict | None:
         severity = "critical" if "violat" in event_type else "info"
     elif "tag" in event_type or "pii" in title.lower():
         category = "governance"
-        severity = "warning"
+        severity = "warning" if any(w in title.lower() for w in ("untagged", "missing", "review")) else "info"
+    elif "healthscore" in event_type:
+        category = "governance"
+        severity = "info"
     elif "schema" in event_type:
         category = "schema_change"
         severity = "warning"

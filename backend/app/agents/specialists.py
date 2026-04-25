@@ -144,7 +144,17 @@ def create_specialist(
     tools: list[BaseTool] = []
     if cfg["mcp_tools"]:
         try:
-            tools.extend(client.mcp.as_langchain_tools(include=cfg["mcp_tools"]))
+            mcp_tools = client.mcp.as_langchain_tools(include=cfg["mcp_tools"])
+            for t in mcp_tools:
+                if hasattr(t, "args_schema") and t.args_schema:
+                    needs_rebuild = False
+                    for fname, field in t.args_schema.model_fields.items():
+                        if field.annotation is list:
+                            field.annotation = list[dict[str, str]]
+                            needs_rebuild = True
+                    if needs_rebuild:
+                        t.args_schema.model_rebuild(force=True)
+            tools.extend(mcp_tools)
         except Exception as exc:
             logging.warning("Could not load MCP tools for %s: %s", name, exc)
     if extra_tools:

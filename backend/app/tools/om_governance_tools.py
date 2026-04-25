@@ -15,6 +15,7 @@ from langchain_core.tools import tool
 
 from app.core.auth import build_auth_headers
 from app.core.config import settings
+from app.core.governance import patch_entity_description
 
 
 def _om_base() -> str:
@@ -27,13 +28,45 @@ def _om_headers(content_type: str | None = None) -> dict[str, str]:
 
 def get_om_governance_tools() -> list:
     return [
+        om_create_glossary,
         om_create_glossary_term,
         om_create_classification,
         om_create_tag,
+        om_patch_entity_description,
         om_apply_tag_to_entity,
         om_set_entity_owner,
         om_set_entity_tier,
     ]
+
+
+@tool
+def om_create_glossary(name: str, description: str) -> str:
+    """Create a new business glossary in OpenMetadata.
+
+    Use before creating terms when the requested glossary does not already
+    exist.
+
+    Args:
+        name: Glossary name.
+        description: Business-friendly glossary purpose.
+    """
+    try:
+        resp = httpx.post(
+            f"{_om_base()}/api/v1/glossaries",
+            headers=_om_headers("application/json"),
+            json={
+                "name": name,
+                "displayName": name,
+                "description": description,
+            },
+            timeout=10,
+        )
+        if resp.status_code >= 400:
+            return f"Failed to create glossary '{name}': HTTP {resp.status_code} — {resp.text[:200]}"
+        data = resp.json()
+        return f"Created glossary '{name}' (id={data.get('id')})."
+    except Exception as exc:
+        return f"Error creating glossary: {exc}"
 
 
 @tool
@@ -151,6 +184,21 @@ def _patch_entity(entity_type: str, entity_fqn: str, patch: list[dict]) -> tuple
         return True, "Patched successfully."
     except Exception as exc:
         return False, f"Error: {exc}"
+
+
+@tool
+def om_patch_entity_description(entity_fqn: str, description: str, entity_type: str = "tables") -> str:
+    """Patch an entity description in OpenMetadata.
+
+    Args:
+        entity_fqn: Fully-qualified name of the target entity.
+        description: Description to write.
+        entity_type: Plural entity type, e.g. 'tables', 'topics', 'dashboards'.
+    """
+    result = patch_entity_description(entity_fqn, description, entity_type)
+    if result.get("ok"):
+        return f"Updated description for {entity_fqn}. version={result.get('version')}"
+    return f"Could not update description for {entity_fqn}. {result.get('reason')}: {result.get('detail')}"
 
 
 @tool

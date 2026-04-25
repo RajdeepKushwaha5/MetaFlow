@@ -164,13 +164,47 @@ def compute_impact(entity_fqn: str, max_depth: int = 3) -> dict:
         return _demo_impact(entity_fqn)
 
     # Try to fetch the entity
-    entity = _om_request("GET", f"/api/v1/tables/name/{entity_fqn}", params={"fields": "tier,owner"})
+    entity = _om_request("GET", f"/api/v1/tables/name/{entity_fqn}", params={"fields": "tags,owners"})
     if entity is None:
-        return _demo_impact(entity_fqn)
+        return {
+            "entity_fqn": entity_fqn,
+            "score": 0,
+            "severity": "unknown",
+            "demo": False,
+            "source": "openmetadata_not_found",
+            "breakdown": {
+                "downstream_tables": 0,
+                "downstream_dashboards": 0,
+                "downstream_pipelines": 0,
+                "total_consumers": 0,
+                "criticality_tier": 0,
+                "hours_since_last_failure": 0,
+            },
+            "nodes": [],
+            "edges": [],
+            "explanation": f"Entity '{entity_fqn}' was not found in OpenMetadata.",
+        }
 
     entity_id = entity.get("id")
     if not entity_id:
-        return _demo_impact(entity_fqn)
+        return {
+            "entity_fqn": entity_fqn,
+            "score": 0,
+            "severity": "unknown",
+            "demo": False,
+            "source": "openmetadata_missing_id",
+            "breakdown": {
+                "downstream_tables": 0,
+                "downstream_dashboards": 0,
+                "downstream_pipelines": 0,
+                "total_consumers": 0,
+                "criticality_tier": 0,
+                "hours_since_last_failure": 0,
+            },
+            "nodes": [],
+            "edges": [],
+            "explanation": f"Entity '{entity_fqn}' exists in OpenMetadata but did not include an id.",
+        }
 
     nodes: dict[str, dict] = {
         entity_fqn: {
@@ -182,7 +216,13 @@ def compute_impact(entity_fqn: str, max_depth: int = 3) -> dict:
         }
     }
     edges: list[dict] = []
-    criticality = _tier_to_score(entity.get("tier", {}).get("tagFQN", ""))
+    tier_fqn = ""
+    for tag in entity.get("tags", []) or []:
+        tag_fqn = tag.get("tagFQN") or tag.get("name") or ""
+        if tag_fqn.startswith("Tier."):
+            tier_fqn = tag_fqn
+            break
+    criticality = _tier_to_score(tier_fqn)
 
     # BFS downstream via lineage
     frontier = [(entity_id, entity_fqn, 0)]
@@ -195,21 +235,23 @@ def compute_impact(entity_fqn: str, max_depth: int = 3) -> dict:
             lineage = _om_request("GET", f"/api/v1/lineage/table/{eid}", params={"downstreamDepth": 1})
             if not lineage:
                 continue
+            lineage_nodes = {n.get("id"): n for n in lineage.get("nodes", []) if n.get("id")}
             for edge in lineage.get("downstreamEdges", []):
                 to_id = edge.get("toEntity")
                 if not to_id or to_id in visited:
                     continue
                 visited.add(to_id)
-                to_node = edge.get("toEntityData") or {}
+                to_node = edge.get("toEntityData") or lineage_nodes.get(to_id, {})
                 to_fqn = to_node.get("fullyQualifiedName", to_id)
                 nodes[to_fqn] = {
                     "fqn": to_fqn,
-                    "type": to_node.get("entityType", "table"),
+                    "type": to_node.get("entityType") or to_node.get("type", "table"),
                     "service": to_node.get("service", {}).get("name", ""),
                     "layer": layer + 1,
                 }
                 edges.append({"source": efqn, "target": to_fqn})
-                next_frontier.append((to_id, to_fqn, layer + 1))
+                if nodes[to_fqn]["type"] == "table":
+                    next_frontier.append((to_id, to_fqn, layer + 1))
         frontier = next_frontier
 
     node_list = list(nodes.values())
@@ -229,11 +271,13 @@ def compute_impact(entity_fqn: str, max_depth: int = 3) -> dict:
     score = round(min(100, raw_score), 1)
     severity = "critical" if score >= 70 else "high" if score >= 45 else "medium" if score >= 20 else "low"
 
+    source = "openmetadata_lineage" if edges else "openmetadata_entity"
     return {
         "entity_fqn": entity_fqn,
         "score": score,
         "severity": severity,
         "demo": False,
+        "source": source,
         "breakdown": {
             "downstream_tables": sum(1 for n in node_list if n.get("type") == "table" and n["layer"] > 0),
             "downstream_dashboards": dashboard_count,
@@ -247,6 +291,8 @@ def compute_impact(entity_fqn: str, max_depth: int = 3) -> dict:
         "explanation": (
             f"Score {score}/100 ({severity}). "
             f"{downstream_count} downstream assets including {dashboard_count} dashboards."
+            if edges
+            else f"Score {score}/100 ({severity}). Live OpenMetadata entity found; no downstream lineage edges are currently registered for this seeded table."
         ),
     }
 
@@ -353,29 +399,91 @@ def build_cause_tree(test_fqn: str) -> dict:
 
     tc = _om_request("GET", f"/api/v1/dataQuality/testCases/name/{test_fqn}", params={"fields": "testDefinition,testSuite"})
     if tc is None:
-        return _demo_cause_tree(test_fqn)
+        return {
+            "test_fqn": test_fqn,
+            "test_name": test_fqn.split(".")[-1],
+            "status": "NotFound",
+            "demo": False,
+            "narrative": f"Test case `{test_fqn}` was not found in OpenMetadata.",
+            "tree": {
+                "id": "root",
+                "label": "OpenMetadata test case not found",
+                "kind": "failure",
+                "severity": "medium",
+                "evidence": test_fqn,
+                "children": [],
+            },
+            "suggested_actions": [
+                {"label": "Create or materialize the missing OpenMetadata test case", "kind": "fix", "confidence": 0.9}
+            ],
+        }
 
-    results = _om_request("GET", f"/api/v1/dataQuality/testCases/{tc.get('id')}/testCaseResult", params={"limit": 10})
+    results = _om_request(
+        "GET",
+        f"/api/v1/dataQuality/testCases/testCaseResults/{test_fqn}",
+        params={"limit": 10},
+    )
+    if results is None:
+        results = _om_request("GET", f"/api/v1/dataQuality/testCases/{tc.get('id')}/testCaseResult", params={"limit": 10})
     latest = (results or {}).get("data", [{}])[0] if results else {}
 
     # Build tree from real data
+    status = latest.get("testCaseStatus") or tc.get("entityStatus") or "Unprocessed"
+    entity_link = tc.get("entityLink", "")
+    test_definition = (tc.get("testDefinition") or {}).get("name", "unknown")
+    params = tc.get("parameterValues") or []
+    evidence = latest.get("result") or f"OpenMetadata test definition: {test_definition}"
+    history_note = (
+        "No execution result is available yet, so MetaFlow is showing definition and target evidence."
+        if not latest
+        else f"Latest run timestamp: {latest.get('timestamp', 'recently')}."
+    )
     tree = {
         "id": "root",
-        "label": f"Test '{tc.get('name')}' status: {latest.get('testCaseStatus', 'Failed')}",
+        "label": f"Test '{tc.get('name')}' status: {status}",
         "kind": "failure",
-        "severity": "high" if latest.get("testCaseStatus") == "Failed" else "medium",
-        "evidence": latest.get("result", "No result data"),
-        "children": [],
+        "severity": "high" if status == "Failed" else "medium",
+        "evidence": evidence,
+        "children": [
+            {
+                "id": "target",
+                "label": "Target asset",
+                "kind": "context",
+                "evidence": entity_link or "No entity link returned",
+                "children": [],
+            },
+            {
+                "id": "definition",
+                "label": f"Rule: {test_definition}",
+                "kind": "signal",
+                "evidence": ", ".join(f"{p.get('name')}={p.get('value')}" for p in params) if params else "No parameters",
+                "children": [],
+            },
+            {
+                "id": "history",
+                "label": "Execution history",
+                "kind": "history",
+                "evidence": "No test run result has been recorded yet" if not latest else "Latest result loaded from OpenMetadata",
+                "children": [],
+            },
+        ],
     }
 
     return {
         "test_fqn": test_fqn,
         "test_name": tc.get("name", ""),
-        "status": latest.get("testCaseStatus", "Unknown"),
+        "status": status,
         "demo": False,
-        "narrative": f"Test {tc.get('name')} last ran {latest.get('timestamp', 'recently')}.",
+        "narrative": (
+            f"OpenMetadata test case `{tc.get('name')}` targets `{entity_link}`. "
+            f"Current status is `{status}`. "
+            f"{history_note}"
+        ),
         "tree": tree,
-        "suggested_actions": [],
+        "suggested_actions": [
+            {"label": "Run the OpenMetadata test suite", "kind": "fix", "confidence": 0.86},
+            {"label": "Review the target column and rule parameters", "kind": "investigate", "confidence": 0.82},
+        ],
     }
 
 
@@ -440,7 +548,12 @@ def recommend_dq_tests(table_fqn: str) -> dict:
 
     table = _om_request("GET", f"/api/v1/tables/name/{table_fqn}", params={"fields": "columns,profile"})
     if not table:
-        return _demo_recommendations(table_fqn)
+        return {
+            "table_fqn": table_fqn,
+            "demo": False,
+            "recommendations": [],
+            "message": f"Table '{table_fqn}' was not found in OpenMetadata.",
+        }
 
     recs: list[dict] = []
     for i, col in enumerate(table.get("columns", [])[:12]):
@@ -494,7 +607,12 @@ def recommend_dq_tests(table_fqn: str) -> dict:
         })
 
     if not recs:
-        return _demo_recommendations(table_fqn)
+        return {
+            "table_fqn": table_fqn,
+            "demo": False,
+            "recommendations": [],
+            "message": "OpenMetadata table was found, but no column patterns required a recommendation.",
+        }
 
     return {"table_fqn": table_fqn, "demo": False, "recommendations": recs[:8]}
 

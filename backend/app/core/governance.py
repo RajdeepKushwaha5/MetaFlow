@@ -25,7 +25,7 @@ from typing import Any
 
 import httpx
 
-from app.core.config import settings
+from app.core.config import settings, is_dry_run, is_public_sandbox
 from app.core.demo import is_demo
 
 # OM property type id for "string" — used when registering the custom property.
@@ -44,6 +44,29 @@ def _om_base() -> str:
 def _om_headers(content_type: str | None = None) -> dict[str, str]:
     from app.core.auth import build_auth_headers
     return build_auth_headers(content_type)
+
+
+def _om_json_request(
+    method: str,
+    path: str,
+    *,
+    content_type: str = "application/json",
+    json_body: dict[str, Any] | list[dict[str, Any]] | None = None,
+) -> tuple[bool, dict[str, Any]]:
+    """Small REST helper that preserves OM error detail for judge checks."""
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            r = client.request(
+                method,
+                f"{_om_base()}{path}",
+                headers=_om_headers(content_type),
+                json=json_body,
+            )
+        if r.status_code >= 400:
+            return False, {"status": r.status_code, "body": r.text[:500]}
+        return True, r.json() if r.content else {}
+    except Exception as exc:
+        return False, {"error": str(exc)[:500]}
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +136,30 @@ def _ensure_health_score_property() -> dict[str, Any]:
         return {"ok": False, "reason": str(exc)[:200]}
 
 
+def _dry_run_health_score(entity_fqn: str, score: int, breakdown: dict[str, float]) -> dict[str, Any]:
+    """Judge-mode payload — what we WOULD have PATCHed to OM."""
+    return {
+        "ok": True,
+        "dry_run": True,
+        "judge_mode": True,
+        "entity_fqn": entity_fqn,
+        "property": HEALTH_SCORE_PROPERTY,
+        "score": score,
+        "breakdown": breakdown,
+        "would_patch": {
+            "method": "PATCH",
+            "url": f"{_om_base()}/api/v1/tables/{{id-of:{entity_fqn}}}",
+            "extension_key": HEALTH_SCORE_PROPERTY,
+        },
+        "om_url": f"{_om_base()}/table/{entity_fqn}",
+        "note": (
+            "Judge mode is pointed at the public OpenMetadata sandbox; writes "
+            "are dry-runs to avoid polluting shared data. Run locally with "
+            "JUDGE_DRY_RUN=false to actually PATCH."
+        ),
+    }
+
+
 def write_health_score(
     entity_fqn: str,
     score: int,
@@ -130,16 +177,24 @@ def write_health_score(
     if is_demo():
         return _demo_health_score(entity_fqn, score, breakdown)
 
+    # Don't PATCH the shared public sandbox — return a clear dry-run payload.
+    if is_dry_run():
+        return _dry_run_health_score(entity_fqn, score, breakdown)
+
     if not settings.ai_sdk_token:
         return {"ok": False, "reason": "AI_SDK_TOKEN not configured"}
 
     # Step 1: ensure the custom property exists on the table type (idempotent).
     reg = _ensure_health_score_property()
     if not reg.get("ok"):
-        # Fall back to demo so the user still sees something useful.
-        fallback = _demo_health_score(entity_fqn, score, breakdown)
-        fallback["fallback_reason"] = reg.get("reason", "property registration failed")
-        return fallback
+        return {
+            "ok": False,
+            "entity_fqn": entity_fqn,
+            "property": HEALTH_SCORE_PROPERTY,
+            "score": score,
+            "breakdown": breakdown,
+            "reason": reg.get("reason", "property registration failed"),
+        }
 
     # Step 2: PATCH the table to set extension[metaflow_health_score].
     base = _om_base()
@@ -158,9 +213,14 @@ def write_health_score(
                 headers=_om_headers(),
             )
             if r.status_code != 200:
-                fallback = _demo_health_score(entity_fqn, score, breakdown)
-                fallback["fallback_reason"] = f"table lookup failed: {r.status_code}"
-                return fallback
+                return {
+                    "ok": False,
+                    "entity_fqn": entity_fqn,
+                    "property": HEALTH_SCORE_PROPERTY,
+                    "score": score,
+                    "breakdown": breakdown,
+                    "reason": f"table lookup failed: {r.status_code}",
+                }
             table = r.json()
             table_id = table.get("id")
 
@@ -182,9 +242,14 @@ def write_health_score(
                 content=json.dumps(patch),
             )
             if r2.status_code not in (200, 201):
-                fallback = _demo_health_score(entity_fqn, score, breakdown)
-                fallback["fallback_reason"] = f"patch failed: {r2.status_code} {r2.text[:120]}"
-                return fallback
+                return {
+                    "ok": False,
+                    "entity_fqn": entity_fqn,
+                    "property": HEALTH_SCORE_PROPERTY,
+                    "score": score,
+                    "breakdown": breakdown,
+                    "reason": f"patch failed: {r2.status_code} {r2.text[:120]}",
+                }
 
             return {
                 "ok": True,
@@ -192,13 +257,153 @@ def write_health_score(
                 "property": HEALTH_SCORE_PROPERTY,
                 "score": score,
                 "breakdown": breakdown,
+                "written_at": datetime.now(timezone.utc).isoformat(),
                 "om_url": f"{base}/table/{entity_fqn}",
                 "registered": reg.get("created", False),
             }
     except Exception as exc:
-        fallback = _demo_health_score(entity_fqn, score, breakdown)
-        fallback["fallback_reason"] = str(exc)[:200]
-        return fallback
+        return {
+            "ok": False,
+            "entity_fqn": entity_fqn,
+            "property": HEALTH_SCORE_PROPERTY,
+            "score": score,
+            "breakdown": breakdown,
+            "reason": str(exc)[:200],
+        }
+
+
+def patch_entity_description(
+    entity_fqn: str,
+    description: str,
+    entity_type: str = "tables",
+) -> dict[str, Any]:
+    """Patch a description onto an OM entity by FQN.
+
+    This is the direct, deterministic version of the Curator Agent's
+    ``patch_entity`` capability, used by smoke tests and live demos.
+    """
+    if is_demo():
+        return {
+            "ok": True,
+            "demo": True,
+            "entity_fqn": entity_fqn,
+            "description": description,
+        }
+    if is_dry_run():
+        return {
+            "ok": True,
+            "dry_run": True,
+            "entity_fqn": entity_fqn,
+            "would_patch": [{"op": "add", "path": "/description", "value": description}],
+        }
+
+    ok, entity = _om_json_request(
+        "GET",
+        f"/api/v1/{entity_type}/name/{entity_fqn}",
+        content_type="application/json",
+    )
+    if not ok:
+        return {"ok": False, "reason": "lookup failed", "detail": entity}
+
+    existing = entity.get("description")
+    patch = [{
+        "op": "replace" if existing else "add",
+        "path": "/description",
+        "value": description,
+    }]
+    ok, patched = _om_json_request(
+        "PATCH",
+        f"/api/v1/{entity_type}/{entity['id']}",
+        content_type="application/json-patch+json",
+        json_body=patch,
+    )
+    if not ok:
+        return {"ok": False, "reason": "patch failed", "detail": patched}
+    return {
+        "ok": True,
+        "entity_fqn": entity_fqn,
+        "entity_type": entity_type,
+        "old_description": existing,
+        "description": patched.get("description") or description,
+        "version": patched.get("version"),
+        "om_url": f"{_om_base()}/{entity_type.rstrip('s')}/{entity_fqn}",
+    }
+
+
+def create_glossary_with_term(
+    glossary_name: str,
+    glossary_description: str,
+    term_name: str,
+    term_description: str,
+) -> dict[str, Any]:
+    """Create a glossary and one term, idempotently enough for demos."""
+    if is_demo():
+        return {
+            "ok": True,
+            "demo": True,
+            "glossary": glossary_name,
+            "term": f"{glossary_name}.{term_name}",
+        }
+    if is_dry_run():
+        return {
+            "ok": True,
+            "dry_run": True,
+            "would_create": {
+                "glossary": glossary_name,
+                "term": f"{glossary_name}.{term_name}",
+            },
+        }
+
+    ok, glossary = _om_json_request(
+        "POST",
+        "/api/v1/glossaries",
+        json_body={
+            "name": glossary_name,
+            "displayName": glossary_name,
+            "description": glossary_description,
+        },
+    )
+    glossary_created = ok
+    if not ok and glossary.get("status") in (400, 409):
+        ok, glossary = _om_json_request(
+            "GET",
+            f"/api/v1/glossaries/name/{glossary_name}",
+            content_type="application/json",
+        )
+        glossary_created = False
+    if not ok:
+        return {"ok": False, "reason": "glossary create/lookup failed", "detail": glossary}
+
+    ok, term = _om_json_request(
+        "POST",
+        "/api/v1/glossaryTerms",
+        json_body={
+            "name": term_name,
+            "displayName": term_name,
+            "description": term_description,
+            "glossary": glossary.get("fullyQualifiedName") or glossary_name,
+        },
+    )
+    term_created = ok
+    if not ok and term.get("status") in (400, 409):
+        ok, term = _om_json_request(
+            "GET",
+            f"/api/v1/glossaryTerms/name/{glossary_name}.{term_name}",
+            content_type="application/json",
+        )
+        term_created = False
+    if not ok:
+        return {"ok": False, "reason": "term create/lookup failed", "detail": term, "glossary": glossary}
+
+    return {
+        "ok": True,
+        "glossary": glossary.get("fullyQualifiedName") or glossary_name,
+        "term": term.get("fullyQualifiedName") or f"{glossary_name}.{term_name}",
+        "glossary_created": glossary_created,
+        "term_created": term_created,
+        "glossary_id": glossary.get("id"),
+        "term_id": term.get("id"),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +479,16 @@ def _diff_columns(prev_cols: list[dict], curr_cols: list[dict]) -> list[dict]:
     return events
 
 
+def _decode_table_version(raw: Any) -> dict[str, Any] | None:
+    """OM 1.12 can return full version objects as JSON strings."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    return raw if isinstance(raw, dict) else None
+
+
 def schema_drift_timeline(entity_fqn: str, limit: int = 20) -> dict[str, Any]:
     """Return a clean timeline of schema changes for a table.
 
@@ -285,9 +500,16 @@ def schema_drift_timeline(entity_fqn: str, limit: int = 20) -> dict[str, Any]:
         return _demo_schema_drift(entity_fqn)
 
     if not settings.ai_sdk_token:
-        out = _demo_schema_drift(entity_fqn)
-        out["fallback_reason"] = "AI_SDK_TOKEN not configured"
-        return out
+        return {
+            "demo": False,
+            "entity_fqn": entity_fqn,
+            "version_count": 0,
+            "first_seen": None,
+            "last_changed": None,
+            "changes": [],
+            "summary": {"additions": 0, "renames": 0, "type_changes": 0, "drops": 0},
+            "error": "AI_SDK_TOKEN not configured",
+        }
 
     base = _om_base()
     try:
@@ -298,9 +520,16 @@ def schema_drift_timeline(entity_fqn: str, limit: int = 20) -> dict[str, Any]:
                 params={"fields": "columns"},
             )
             if r.status_code != 200:
-                out = _demo_schema_drift(entity_fqn)
-                out["fallback_reason"] = f"table lookup failed: {r.status_code}"
-                return out
+                return {
+                    "demo": False,
+                    "entity_fqn": entity_fqn,
+                    "version_count": 0,
+                    "first_seen": None,
+                    "last_changed": None,
+                    "changes": [],
+                    "summary": {"additions": 0, "renames": 0, "type_changes": 0, "drops": 0},
+                    "error": f"table lookup failed: {r.status_code}",
+                }
             table = r.json()
             table_id = table.get("id")
 
@@ -309,25 +538,34 @@ def schema_drift_timeline(entity_fqn: str, limit: int = 20) -> dict[str, Any]:
                 headers=_om_headers(),
             )
             if v.status_code != 200:
-                out = _demo_schema_drift(entity_fqn)
-                out["fallback_reason"] = f"versions lookup failed: {v.status_code}"
-                return out
+                return {
+                    "demo": False,
+                    "entity_fqn": entity_fqn,
+                    "version_count": 0,
+                    "first_seen": None,
+                    "last_changed": None,
+                    "changes": [],
+                    "summary": {"additions": 0, "renames": 0, "type_changes": 0, "drops": 0},
+                    "error": f"versions lookup failed: {v.status_code}",
+                }
             versions_payload = v.json()
             version_refs = versions_payload.get("versions") or []
 
             # Each ref has {version, updatedAt}. Fetch each one in sorted order.
-            version_refs = sorted(version_refs, key=lambda x: x.get("updatedAt", 0))[-limit:]
+            decoded_refs = [_decode_table_version(ref) for ref in version_refs]
+            decoded_refs = [ref for ref in decoded_refs if ref]
+            version_refs = sorted(decoded_refs, key=lambda x: x.get("updatedAt", 0))[-limit:]
             full_versions: list[dict] = []
             for ref in version_refs:
                 ver = ref.get("version")
                 if ver is None:
                     continue
-                fr = client.get(
-                    f"{base}/api/v1/tables/{table_id}/versions/{ver}",
-                    headers=_om_headers(),
-                )
+                if ref.get("columns") is not None:
+                    full_versions.append(ref)
+                    continue
+                fr = client.get(f"{base}/api/v1/tables/{table_id}/versions/{ver}", headers=_om_headers())
                 if fr.status_code == 200:
-                    full_versions.append(fr.json())
+                    full_versions.append(_decode_table_version(fr.json()) or fr.json())
 
             changes: list[dict] = []
             for prev, curr in zip(full_versions, full_versions[1:]):
@@ -348,6 +586,7 @@ def schema_drift_timeline(entity_fqn: str, limit: int = 20) -> dict[str, Any]:
             }
 
             return {
+                "demo": False,
                 "entity_fqn": entity_fqn,
                 "version_count": len(full_versions),
                 "first_seen": (
@@ -362,6 +601,13 @@ def schema_drift_timeline(entity_fqn: str, limit: int = 20) -> dict[str, Any]:
                 "summary": summary,
             }
     except Exception as exc:
-        out = _demo_schema_drift(entity_fqn)
-        out["fallback_reason"] = str(exc)[:200]
-        return out
+        return {
+            "demo": False,
+            "entity_fqn": entity_fqn,
+            "version_count": 0,
+            "first_seen": None,
+            "last_changed": None,
+            "changes": [],
+            "summary": {"additions": 0, "renames": 0, "type_changes": 0, "drops": 0},
+            "error": str(exc)[:200],
+        }

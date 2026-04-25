@@ -9,6 +9,8 @@ import {
   Target,
   TrendingDown,
   User,
+  Zap,
+  Ticket,
 } from "lucide-react";
 import { fetchAutoRemediation, dispatchTicket } from "../lib/api";
 import type {
@@ -17,9 +19,27 @@ import type {
   DriftSignal,
   RemediationCandidate,
 } from "../lib/types";
+import MiniFlow, { type FlowNodeSpec, type FlowEdgeSpec } from "./MiniFlow";
 
 const DEFAULT_TEST =
-  "warehouse.orders.daily_revenue.amount_not_null_check";
+  "sample_db_service.ecommerce_db.shopify.dim_customer.email.regex_email";
+
+const REMEDIATION_FLOW_NODES: FlowNodeSpec[] = [
+  { id: "test", tone: "input", label: "Failed Test", sublabel: "DQ violation", icon: Zap, col: 0 },
+  { id: "lineage", tone: "process", label: "Lineage Walk", sublabel: "upstream cols", icon: GitBranch, col: 1 },
+  { id: "agent", tone: "agent", label: "Remediation Agent", sublabel: "rank + draft fix", icon: Target, col: 2 },
+  { id: "owner", tone: "data", label: "Owner Resolved", sublabel: "via OpenMetadata", icon: User, col: 3, row: 0 },
+  { id: "gh", tone: "output", label: "GitHub Issue", sublabel: "auto-drafted", icon: Github, col: 3, row: 1 },
+  { id: "jira", tone: "output", label: "Jira Ticket", sublabel: "auto-drafted", icon: Ticket, col: 3, row: 2 },
+];
+
+const REMEDIATION_FLOW_EDGES: FlowEdgeSpec[] = [
+  { from: "test", to: "lineage", label: "trace" },
+  { from: "lineage", to: "agent", label: "context" },
+  { from: "agent", to: "owner" },
+  { from: "agent", to: "gh" },
+  { from: "agent", to: "jira", dashed: true },
+];
 
 const SEVERITY_COLORS: Record<string, string> = {
   critical: "bg-red-500/15 text-red-300 border-red-500/40",
@@ -162,6 +182,9 @@ export default function AutoRemediation() {
         </p>
       </div>
 
+      {/* Pipeline diagram */}
+      <MiniFlow nodes={REMEDIATION_FLOW_NODES} edges={REMEDIATION_FLOW_EDGES} height={320} />
+
       {/* Input */}
       <form
         onSubmit={(e) => {
@@ -173,7 +196,7 @@ export default function AutoRemediation() {
         <input
           value={testFqn}
           onChange={(e) => setTestFqn(e.target.value)}
-          placeholder="Failing test FQN (e.g. warehouse.orders.daily_revenue.amount_not_null_check)"
+          placeholder="Failing test FQN (e.g. sample_db_service.ecommerce_db.shopify.dim_customer.email.regex_email)"
           className="flex-1 rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-white/30 focus:outline-none"
         />
         <button
@@ -216,7 +239,7 @@ export default function AutoRemediation() {
             <p className="mt-4 text-sm leading-relaxed text-slate-300">{remediation.narrative}</p>
             {remediation.demo && (
               <div className="mt-3 inline-flex rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-blue-300">
-                Demo data — OpenMetadata not connected
+                Offline fallback — OpenMetadata not connected
               </div>
             )}
           </div>

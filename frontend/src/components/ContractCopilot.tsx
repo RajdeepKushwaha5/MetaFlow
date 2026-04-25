@@ -3,7 +3,9 @@ import {
   AlertTriangle,
   Check,
   ClipboardCopy,
+  Database,
   FileText,
+  GitBranch,
   GitPullRequest,
   Loader2,
   RefreshCcw,
@@ -28,8 +30,33 @@ import type {
   CreateTestCasesResult,
   PublishContractResult,
 } from "../lib/types";
+import MiniFlow, { type FlowNodeSpec, type FlowEdgeSpec } from "./MiniFlow";
 
-const DEFAULT_ENTITY = "warehouse.analytics.daily_revenue";
+const CONTRACT_FLOW_NODES: FlowNodeSpec[] = [
+  { id: "entity", tone: "data", label: "Target Entity", sublabel: "table FQN", icon: Database, col: 0 },
+  { id: "lineage", tone: "process", label: "Lineage + Profiler", sublabel: "OM metadata", icon: GitBranch, col: 1 },
+  { id: "draft", tone: "agent", label: "Contract Agent", sublabel: "generate spec v1.12", icon: Sparkles, col: 2 },
+  { id: "om", tone: "output", label: "OpenMetadata", sublabel: "publish contract", icon: Shield, col: 3, row: 0 },
+  { id: "tests", tone: "output", label: "Test Cases", sublabel: "materialize gates", icon: Check, col: 3, row: 1 },
+  { id: "heal", tone: "output", label: "Remediation PR", sublabel: "auto-draft on violation", icon: GitPullRequest, col: 3, row: 2 },
+];
+
+const CONTRACT_FLOW_EDGES: FlowEdgeSpec[] = [
+  { from: "entity", to: "lineage" },
+  { from: "lineage", to: "draft", label: "context" },
+  { from: "draft", to: "om" },
+  { from: "draft", to: "tests" },
+  { from: "draft", to: "heal", dashed: true },
+];
+
+const DEFAULT_ENTITY = "sample_db_service.ecommerce_db.shopify.dim_customer";
+
+function normalizeEntityFqn(value: string) {
+  const trimmed = value.trim().replace(/^[`'"]|[`'"]$/g, "");
+  const withoutPrefix = trimmed.replace(/^(for|table|entity|fqn|contract\s+for|use)\s+/i, "").trim();
+  const candidates = withoutPrefix.match(/[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){2,}/g);
+  return candidates ? candidates[candidates.length - 1] : withoutPrefix;
+}
 
 const SEVERITY_COLORS: Record<string, string> = {
   blocker: "bg-red-500/15 text-red-300 border-red-500/40",
@@ -88,6 +115,8 @@ export default function ContractCopilot() {
   // ── Generate ─────────────────────────────────────────────────────────────
   const onGenerate = useCallback(
     async (fqn: string) => {
+      const normalizedFqn = normalizeEntityFqn(fqn);
+      setEntityFqn(normalizedFqn);
       setLoading(true);
       setError(null);
       setPublishResult(null);
@@ -95,7 +124,7 @@ export default function ContractCopilot() {
       setStatus(null);
       setHeal(null);
       try {
-        const data = await fetchContract(fqn);
+        const data = await fetchContract(normalizedFqn);
         setContract(data);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to generate contract");
@@ -125,12 +154,13 @@ export default function ContractCopilot() {
 
   useEffect(() => {
     if (!publishResult?.published) return;
-    refreshStatus(entityFqn);
-    pollRef.current = window.setInterval(() => refreshStatus(entityFqn), 10_000);
+    const fqn = contract?.entity_fqn ?? normalizeEntityFqn(entityFqn);
+    refreshStatus(fqn);
+    pollRef.current = window.setInterval(() => refreshStatus(fqn), 10_000);
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
     };
-  }, [publishResult, entityFqn, refreshStatus]);
+  }, [publishResult, contract?.entity_fqn, entityFqn, refreshStatus]);
 
   // ── Publish + materialize ────────────────────────────────────────────────
   const onPublish = useCallback(async () => {
@@ -217,14 +247,15 @@ export default function ContractCopilot() {
             <input
               value={entityFqn}
               onChange={(e) => setEntityFqn(e.target.value)}
+              onBlur={() => setEntityFqn((value) => normalizeEntityFqn(value))}
               onKeyDown={(e) => e.key === "Enter" && onGenerate(entityFqn)}
-              placeholder="Enter table FQN (e.g. warehouse.analytics.daily_revenue)"
+              placeholder="Enter table FQN (e.g. sample_db_service.ecommerce_db.shopify.dim_customer)"
               className="flex-1 rounded-lg border border-white/10 bg-zinc-900/60 px-4 py-3 font-mono text-sm text-zinc-100 outline-none focus:border-violet-400/60"
             />
             <button
               type="button"
               onClick={() => onGenerate(entityFqn)}
-              disabled={loading || !entityFqn.trim()}
+              disabled={loading || !normalizeEntityFqn(entityFqn)}
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-violet-500 hover:bg-violet-400 disabled:opacity-50 px-5 py-3 text-sm font-semibold text-white"
             >
               {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
@@ -237,6 +268,17 @@ export default function ContractCopilot() {
               <AlertTriangle size={14} /> {error}
             </div>
           )}
+        </section>
+
+        {/* Pipeline flow diagram */}
+        <section className="rounded-2xl border border-white/[0.06] bg-surface-1/40 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-200">Contract Pipeline</h2>
+              <p className="text-xs text-zinc-500 mt-0.5">How MetaFlow turns an entity into a published, self-healing contract.</p>
+            </div>
+          </div>
+          <MiniFlow nodes={CONTRACT_FLOW_NODES} edges={CONTRACT_FLOW_EDGES} height={320} />
         </section>
 
         {/* Status strip */}
@@ -279,7 +321,7 @@ export default function ContractCopilot() {
                   <span className="font-semibold">Generated contract (YAML)</span>
                   {contract.demo && (
                     <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] uppercase text-amber-200">
-                      demo data
+                      offline fallback
                     </span>
                   )}
                 </div>

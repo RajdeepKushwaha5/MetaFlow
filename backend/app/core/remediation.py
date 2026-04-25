@@ -292,12 +292,13 @@ def _get_upstream_columns(table_id: str, target_column: str, max_depth: int = 2)
             lineage = _om_request("GET", f"/api/v1/lineage/table/{tid}", params={"upstreamDepth": 1})
             if not lineage:
                 continue
+            lineage_nodes = {n.get("id"): n for n in lineage.get("nodes", []) if n.get("id")}
             for edge in lineage.get("upstreamEdges", []):
                 from_id = edge.get("fromEntity")
                 if not from_id or from_id in visited:
                     continue
                 visited.add(from_id)
-                from_data = edge.get("fromEntityData") or {}
+                from_data = edge.get("fromEntityData") or lineage_nodes.get(from_id, {})
                 from_fqn = from_data.get("fullyQualifiedName", from_id)
 
                 # Try column mapping from lineage edge
@@ -340,7 +341,19 @@ def auto_remediate(test_fqn: str) -> dict:
         params={"fields": "entityLink,testDefinition,testSuite"},
     )
     if not test:
-        return _demo_remediation(test_fqn)
+        return {
+            "test_fqn": test_fqn,
+            "target_table": "",
+            "target_column": "",
+            "demo": False,
+            "confidence": 0,
+            "root_cause": None,
+            "candidates": [],
+            "owner": {"name": "unassigned", "email": "", "type": "none"},
+            "narrative": f"OpenMetadata test case `{test_fqn}` was not found.",
+            "suggested_tickets": {},
+            "timeline": [{"at": "now", "event": "OpenMetadata test lookup returned no result"}],
+        }
 
     # Parse entity link: <#E::table::<fqn>::columns::<col>>
     entity_link = test.get("entityLink", "")
@@ -357,19 +370,49 @@ def auto_remediate(test_fqn: str) -> dict:
             target_table_fqn = parts[2]
 
     if not target_table_fqn:
-        return _demo_remediation(test_fqn)
+        return {
+            "test_fqn": test_fqn,
+            "target_table": "",
+            "target_column": "",
+            "demo": False,
+            "confidence": 0.2,
+            "root_cause": None,
+            "candidates": [],
+            "owner": {"name": "unassigned", "email": "", "type": "none"},
+            "narrative": f"OpenMetadata test `{test_fqn}` exists but does not include a parseable table entity link.",
+            "suggested_tickets": {},
+            "timeline": [{"at": "now", "event": "Test case found, but target table could not be parsed"}],
+        }
 
     # 2. Fetch target table
     target = _om_request(
         "GET",
         f"/api/v1/tables/name/{target_table_fqn}",
-        params={"fields": "columns,owners,profile,tableProfile"},
+        params={"fields": "columns,owners,profile"},
     )
     if not target:
-        return _demo_remediation(test_fqn)
+        return {
+            "test_fqn": test_fqn,
+            "target_table": target_table_fqn,
+            "target_column": target_column,
+            "demo": False,
+            "confidence": 0.2,
+            "root_cause": None,
+            "candidates": [],
+            "owner": {"name": "unassigned", "email": "", "type": "none"},
+            "narrative": f"OpenMetadata table `{target_table_fqn}` referenced by `{test_fqn}` was not found.",
+            "suggested_tickets": {},
+            "timeline": [{"at": "now", "event": "Target table lookup returned no result"}],
+        }
 
     # 3. Walk upstream column lineage
     upstream = _get_upstream_columns(target["id"], target_column or "", max_depth=2)
+    if not upstream:
+        fallback_column = target_column
+        if not fallback_column and target.get("columns"):
+            fallback_column = target["columns"][0].get("name", "")
+        if fallback_column:
+            upstream = [(target_table_fqn, target["id"], fallback_column)]
 
     # 4. Score each upstream candidate
     candidates: list[dict] = []
@@ -417,6 +460,15 @@ def auto_remediate(test_fqn: str) -> dict:
             }
 
         score, signals = _drift_score(cur, baseline)
+        if not signals:
+            signals = [{
+                "metric": "lineage_dependency",
+                "baseline": "registered in OpenMetadata",
+                "current": f"{up_fqn}.{up_col}",
+                "delta": 0,
+                "severity": "medium" if up_fqn != target_table_fqn else "low",
+            }]
+            score = 0.35 if up_fqn != target_table_fqn else 0.15
         owner = _resolve_owner(up_table)
         candidates.append({
             "table_fqn": up_fqn,
@@ -428,7 +480,42 @@ def auto_remediate(test_fqn: str) -> dict:
         })
 
     if not candidates:
-        return _demo_remediation(test_fqn)
+        return {
+            "test_fqn": test_fqn,
+            "target_table": target_table_fqn,
+            "target_column": target_column,
+            "demo": False,
+            "confidence": 0.35,
+            "root_cause": None,
+            "candidates": [],
+            "owner": _resolve_owner(target),
+            "narrative": (
+                f"OpenMetadata test `{test_fqn}` was resolved to `{target_table_fqn}`"
+                f"{'.' + target_column if target_column else ''}, but no column profile or upstream lineage candidates were available yet."
+            ),
+            "suggested_tickets": {
+                "github": {
+                    "title": f"[DQ] Investigate `{test_fqn}` on `{target_table_fqn}`",
+                    "assignees": [],
+                    "labels": ["data-quality", "needs-profile", "metaflow"],
+                    "body": "OpenMetadata test case exists, but no lineage/profile evidence was available yet. Run profiling or register lineage, then re-run MetaFlow auto-remediation.",
+                },
+                "jira": {
+                    "project": "DATA",
+                    "issue_type": "Task",
+                    "priority": "Medium",
+                    "summary": f"[DQ] Investigate `{test_fqn}` on `{target_table_fqn}`",
+                    "assignee": "",
+                    "description": "OpenMetadata test case exists, but no lineage/profile evidence was available yet. Run profiling or register lineage, then re-run MetaFlow auto-remediation.",
+                    "labels": ["data-quality", "needs-profile", "metaflow"],
+                },
+            },
+            "timeline": [
+                {"at": "now", "event": "Resolved test case from OpenMetadata"},
+                {"at": "now", "event": "No upstream lineage/profile candidates were available"},
+                {"at": "next", "event": "Run profiling or register lineage to improve confidence"},
+            ],
+        }
 
     candidates.sort(key=lambda c: c["drift_score"], reverse=True)
     root_cause = candidates[0]

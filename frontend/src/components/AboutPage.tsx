@@ -1,6 +1,5 @@
 import {
   Database,
-  Zap,
   ArrowRight,
   Bot,
   Layers,
@@ -29,6 +28,7 @@ import {
   NotionLogo,
   EmailLogo,
 } from "./PlatformLogos";
+import MiniFlow from "./MiniFlow";
 
 interface Props {
   onNavigateChat: () => void;
@@ -108,12 +108,21 @@ const FLOW_SCENARIOS = [
     label: "Data Quality Triage",
     userMessage: "Find failing DQ tests on orders table, create a Jira ticket, and email the data team",
     nodes: [
-      { id: "input", type: "input" as const, label: "Your Request", icon: MessageSquare, x: 0, detail: "Natural language — no syntax needed" },
-      { id: "supervisor", type: "process" as const, label: "Supervisor", icon: Cpu, x: 1, detail: "Analyzes intent, picks agents" },
-      { id: "dq", type: "agent" as const, label: "DQ Agent", icon: Search, x: 2, detail: "root_cause_analysis()" },
-      { id: "jira", type: "agent" as const, label: "Jira Agent", icon: FileText, x: 3, detail: "create_jira_issue()" },
-      { id: "email", type: "agent" as const, label: "Email Agent", icon: Send, x: 4, detail: "send_email_report()" },
-      { id: "output", type: "output" as const, label: "Response", icon: Check, x: 5, detail: "Summary + Jira link + confirmation" },
+      { id: "input", tone: "input" as const, label: "Your Request", sublabel: "natural language", icon: MessageSquare, col: 0 },
+      { id: "supervisor", tone: "process" as const, label: "Supervisor", sublabel: "route intent → agents", icon: Cpu, col: 1 },
+      { id: "dq", tone: "agent" as const, label: "DQ Agent", sublabel: "root_cause_analysis()", icon: Search, col: 2, row: 0 },
+      { id: "jira", tone: "agent" as const, label: "Jira Agent", sublabel: "create_jira_issue()", icon: FileText, col: 2, row: 1 },
+      { id: "email", tone: "agent" as const, label: "Email Agent", sublabel: "send_email_report()", icon: Send, col: 2, row: 2 },
+      { id: "output", tone: "output" as const, label: "Response", sublabel: "summary + links", icon: Check, col: 3 },
+    ],
+    edges: [
+      { from: "input", to: "supervisor", label: "prompt" },
+      { from: "supervisor", to: "dq" },
+      { from: "supervisor", to: "jira" },
+      { from: "supervisor", to: "email" },
+      { from: "dq", to: "output" },
+      { from: "jira", to: "output" },
+      { from: "email", to: "output" },
     ],
   },
   {
@@ -121,12 +130,21 @@ const FLOW_SCENARIOS = [
     label: "PII Compliance Sweep",
     userMessage: "Scan for PII columns, tag them in the catalog, create GitHub issue, and notify Slack",
     nodes: [
-      { id: "input", type: "input" as const, label: "Your Request", icon: MessageSquare, x: 0, detail: "Natural language — no syntax needed" },
-      { id: "supervisor", type: "process" as const, label: "Supervisor", icon: Cpu, x: 1, detail: "Analyzes intent, picks agents" },
-      { id: "gov", type: "agent" as const, label: "Governance", icon: Shield, x: 2, detail: "semantic_search() + patch_entity()" },
-      { id: "github", type: "agent" as const, label: "GitHub Agent", icon: GitBranch, x: 3, detail: "create_github_issue()" },
-      { id: "slack", type: "agent" as const, label: "Slack Agent", icon: Send, x: 4, detail: "send_slack_alert()" },
-      { id: "output", type: "output" as const, label: "Response", icon: Check, x: 5, detail: "PII report + issue link + Slack notification" },
+      { id: "input", tone: "input" as const, label: "Your Request", sublabel: "natural language", icon: MessageSquare, col: 0 },
+      { id: "supervisor", tone: "process" as const, label: "Supervisor", sublabel: "route intent → agents", icon: Cpu, col: 1 },
+      { id: "gov", tone: "agent" as const, label: "Governance", sublabel: "patch_entity()", icon: Shield, col: 2, row: 0 },
+      { id: "github", tone: "agent" as const, label: "GitHub Agent", sublabel: "create_issue()", icon: GitBranch, col: 2, row: 1 },
+      { id: "slack", tone: "agent" as const, label: "Slack Agent", sublabel: "send_slack_alert()", icon: Send, col: 2, row: 2 },
+      { id: "output", tone: "output" as const, label: "Response", sublabel: "report + notification", icon: Check, col: 3 },
+    ],
+    edges: [
+      { from: "input", to: "supervisor", label: "prompt" },
+      { from: "supervisor", to: "gov" },
+      { from: "supervisor", to: "github" },
+      { from: "supervisor", to: "slack" },
+      { from: "gov", to: "output" },
+      { from: "github", to: "output" },
+      { from: "slack", to: "output" },
     ],
   },
   {
@@ -134,56 +152,36 @@ const FLOW_SCENARIOS = [
     label: "Lineage Investigation",
     userMessage: "Trace lineage for the orders table and document it in Notion",
     nodes: [
-      { id: "input", type: "input" as const, label: "Your Request", icon: MessageSquare, x: 0, detail: "Natural language — no syntax needed" },
-      { id: "supervisor", type: "process" as const, label: "Supervisor", icon: Cpu, x: 1, detail: "Analyzes intent, picks agents" },
-      { id: "lineage", type: "agent" as const, label: "Lineage Agent", icon: GitBranch, x: 2, detail: "get_entity_lineage()" },
-      { id: "notion", type: "agent" as const, label: "Notion Agent", icon: FileText, x: 3, detail: "create_notion_page()" },
-      { id: "output", type: "output" as const, label: "Response", icon: Check, x: 4, detail: "Lineage map + Notion page link" },
+      { id: "input", tone: "input" as const, label: "Your Request", sublabel: "natural language", icon: MessageSquare, col: 0 },
+      { id: "supervisor", tone: "process" as const, label: "Supervisor", sublabel: "route intent → agents", icon: Cpu, col: 1 },
+      { id: "lineage", tone: "agent" as const, label: "Lineage Agent", sublabel: "get_entity_lineage()", icon: GitBranch, col: 2, row: 0 },
+      { id: "notion", tone: "agent" as const, label: "Notion Agent", sublabel: "create_notion_page()", icon: FileText, col: 2, row: 1 },
+      { id: "output", tone: "output" as const, label: "Response", sublabel: "map + page link", icon: Check, col: 3 },
+    ],
+    edges: [
+      { from: "input", to: "supervisor", label: "prompt" },
+      { from: "supervisor", to: "lineage" },
+      { from: "supervisor", to: "notion" },
+      { from: "lineage", to: "output" },
+      { from: "notion", to: "output" },
     ],
   },
 ];
 
 /* ── Interactive flow diagram for "How It Works" ── */
 
-function HowItWorksFlow({ onNavigateChat }: { onNavigateChat: () => void }) {
+function HowItWorksFlow({ onNavigateChat }: Readonly<{ onNavigateChat: () => void }>) {
   const [activeScenario, setActiveScenario] = useState(0);
-  const [activeNode, setActiveNode] = useState<string | null>(null);
-  const [animating, setAnimating] = useState(false);
-  const [animStep, setAnimStep] = useState(-1);
-
   const scenario = FLOW_SCENARIOS[activeScenario];
 
-  const typeColors: Record<string, { border: string; bg: string; text: string; glow: string }> = {
-    input: { border: "border-blue-500/30", bg: "from-blue-500/[0.08] to-blue-700/[0.04]", text: "text-blue-400", glow: "shadow-[0_0_20px_rgba(59,130,246,0.15)]" },
-    process: { border: "border-amber-500/30", bg: "from-amber-500/[0.08] to-amber-700/[0.04]", text: "text-amber-400", glow: "shadow-[0_0_20px_rgba(245,158,11,0.15)]" },
-    agent: { border: "border-brand-500/30", bg: "from-brand-500/[0.08] to-brand-700/[0.04]", text: "text-brand-400", glow: "shadow-[0_0_20px_rgba(16,185,129,0.15)]" },
-    output: { border: "border-purple-500/30", bg: "from-purple-500/[0.08] to-purple-700/[0.04]", text: "text-purple-400", glow: "shadow-[0_0_20px_rgba(168,85,247,0.15)]" },
-  };
-
-  const runAnimation = () => {
-    if (animating) return;
-    setAnimating(true);
-    setAnimStep(0);
-    let step = 0;
-    const iv = setInterval(() => {
-      step++;
-      if (step >= scenario.nodes.length) {
-        clearInterval(iv);
-        setTimeout(() => { setAnimating(false); setAnimStep(-1); }, 1200);
-      } else {
-        setAnimStep(step);
-      }
-    }, 600);
-  };
-
   return (
-    <div className="space-y-6 animate-fade-up delay-2">
+    <div className="space-y-5 animate-fade-up delay-2">
       {/* Scenario tabs */}
       <div className="flex flex-wrap justify-center gap-2">
         {FLOW_SCENARIOS.map((s, i) => (
           <button
             key={s.id}
-            onClick={() => { setActiveScenario(i); setAnimStep(-1); setAnimating(false); setActiveNode(null); }}
+            onClick={() => setActiveScenario(i)}
             className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300
               ${i === activeScenario
                 ? "bg-brand-500/15 text-brand-400 border border-brand-500/25 shadow-glow"
@@ -208,117 +206,22 @@ function HowItWorksFlow({ onNavigateChat }: { onNavigateChat: () => void }) {
         </div>
       </div>
 
-      {/* Flow canvas */}
-      <div className="relative glass rounded-2xl p-5 md:p-8 overflow-x-auto">
-        {/* Animated play button */}
-        <div className="flex justify-end mb-4">
-          <button
-            onClick={runAnimation}
-            disabled={animating}
-            className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-300
-              ${animating
-                ? "bg-brand-500/10 text-brand-400/50 cursor-not-allowed"
-                : "bg-brand-500/15 text-brand-400 hover:bg-brand-500/25 border border-brand-500/20"
-              }`}
-          >
-            <Zap size={12} className={animating ? "animate-pulse" : ""} />
-            {animating ? "Running..." : "Simulate Flow"}
-          </button>
-        </div>
+      {/* React Flow data-flow diagram */}
+      <MiniFlow nodes={scenario.nodes} edges={scenario.edges} height={340} />
 
-        {/* Node flow — horizontal scroll on mobile */}
-        <div className="flex items-center gap-0 min-w-max mx-auto justify-center">
-          {scenario.nodes.map((node, i) => {
-            const colors = typeColors[node.type];
-            const isActive = activeNode === node.id;
-            const isAnimActive = animStep >= i;
-            const isAnimCurrent = animStep === i;
-            const NodeIcon = node.icon;
-
-            return (
-              <div key={node.id} className="flex items-center">
-                {/* Node card */}
-                <div
-                  onMouseEnter={() => setActiveNode(node.id)}
-                  onMouseLeave={() => setActiveNode(null)}
-                  className={`relative flex flex-col items-center gap-2.5 px-4 py-4 md:px-5 md:py-5 rounded-xl border backdrop-blur-sm
-                    bg-gradient-to-br transition-all duration-500 cursor-pointer group min-w-[110px]
-                    ${colors.border} ${colors.bg}
-                    ${isActive || isAnimCurrent ? colors.glow + " scale-105 border-opacity-100" : "hover:" + colors.glow}
-                    ${isAnimActive && animating ? "opacity-100" : animating && !isAnimActive ? "opacity-30" : "opacity-100"}`}
-                >
-                  {/* Pulse ring on active animation */}
-                  {isAnimCurrent && animating && (
-                    <div className={`absolute inset-0 rounded-xl border-2 ${colors.border} animate-ping opacity-30`} />
-                  )}
-
-                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${colors.bg} border ${colors.border}
-                    flex items-center justify-center transition-all duration-300
-                    ${isAnimCurrent && animating ? "scale-110" : ""}`}>
-                    <NodeIcon size={18} className={`${colors.text} transition-all duration-300`} />
-                  </div>
-
-                  <span className={`text-xs font-bold font-display ${isActive || isAnimCurrent ? "text-white" : "text-zinc-300"} transition-colors`}>
-                    {node.label}
-                  </span>
-
-                  {/* Tool badge */}
-                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded-md ${isActive || isAnimCurrent ? "bg-white/[0.08] text-zinc-200" : "bg-white/[0.03] text-zinc-500"} transition-all`}>
-                    {node.detail}
-                  </span>
-
-                  {/* Type label */}
-                  <span className={`text-[9px] uppercase tracking-[0.12em] font-semibold ${colors.text} opacity-60`}>
-                    {node.type}
-                  </span>
-                </div>
-
-                {/* Connector line */}
-                {i < scenario.nodes.length - 1 && (
-                  <div className="flex items-center mx-1 md:mx-2">
-                    <svg width="48" height="24" viewBox="0 0 48 24" className="shrink-0">
-                      <path
-                        d="M0 12 C16 12, 20 4, 24 4 S32 12, 48 12"
-                        fill="none"
-                        stroke={isAnimActive && animating && animStep > i ? "rgba(16,185,129,0.5)" : "rgba(255,255,255,0.08)"}
-                        strokeWidth="2"
-                        strokeDasharray={isAnimActive && animating && animStep > i ? "0" : "4 4"}
-                        className="transition-all duration-500"
-                      />
-                      {/* Animated dot */}
-                      {animating && animStep === i + 1 && (
-                        <circle r="3" fill="#10b981" className="animate-pulse">
-                          <animateMotion dur="0.6s" repeatCount="1" path="M0 12 C16 12, 20 4, 24 4 S32 12, 48 12" />
-                        </circle>
-                      )}
-                      {/* Arrow head */}
-                      <polygon
-                        points="43,8 48,12 43,16"
-                        fill={isAnimActive && animating && animStep > i ? "rgba(16,185,129,0.5)" : "rgba(255,255,255,0.1)"}
-                        className="transition-all duration-500"
-                      />
-                    </svg>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Legend */}
-        <div className="flex flex-wrap justify-center gap-4 mt-6 pt-4 border-t border-white/[0.04]">
-          {[
-            { type: "input", label: "Input" },
-            { type: "process", label: "Supervisor" },
-            { type: "agent", label: "Agent" },
-            { type: "output", label: "Output" },
-          ].map((l) => (
-            <div key={l.type} className="flex items-center gap-2">
-              <div className={`w-2.5 h-2.5 rounded-sm ${typeColors[l.type].border} bg-gradient-to-br ${typeColors[l.type].bg} border`} />
-              <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">{l.label}</span>
-            </div>
-          ))}
-        </div>
+      {/* Legend */}
+      <div className="flex flex-wrap justify-center gap-4">
+        {[
+          { tone: "input", label: "Input", color: "bg-blue-500" },
+          { tone: "process", label: "Supervisor", color: "bg-amber-500" },
+          { tone: "agent", label: "Agent", color: "bg-brand-500" },
+          { tone: "output", label: "Output", color: "bg-purple-500" },
+        ].map((l) => (
+          <div key={l.tone} className="flex items-center gap-2">
+            <div className={`w-2.5 h-2.5 rounded-sm ${l.color} opacity-60`} />
+            <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">{l.label}</span>
+          </div>
+        ))}
       </div>
 
       {/* Try it CTA */}

@@ -79,8 +79,10 @@ export interface LLMSettings {
   model: string;
   gemini_key_set: boolean;
   openai_key_set: boolean;
+  anthropic_key_set?: boolean;
   gemini_models: string[];
   openai_models: string[];
+  anthropic_models?: string[];
 }
 
 export interface LLMSettingsUpdate {
@@ -88,6 +90,7 @@ export interface LLMSettingsUpdate {
   model?: string;
   gemini_key?: string;
   openai_key?: string;
+  anthropic_key?: string;
 }
 
 // Integrations

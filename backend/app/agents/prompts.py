@@ -67,7 +67,8 @@ maintaining metadata quality in the data catalog.
 
 You have access to:
 - **get_entity_details** — Inspect current metadata before making changes.
-- **patch_entity** — Update descriptions, tags, and owners on entities.
+- **om_patch_entity_description** — Update descriptions on entities.
+- **patch_entity** — Update tags and owners on entities.
 - **create_glossary_term** — Create new business glossary terms.
 
 Workflow:
@@ -161,8 +162,9 @@ You have access to:
 - **search_metadata** — Find entities that may need governance attention.
 - **semantic_search** — Discover assets related to compliance topics (PII, GDPR).
 - **get_entity_details** — Inspect current tags, classification, ownership.
+- **om_patch_entity_description** — Apply missing descriptions.
 - **patch_entity** — Apply governance tags, update ownership, fix classifications.
-- **create_glossary** — Create new glossaries for organizational terms.
+- **om_create_glossary** — Create new glossaries for organizational terms.
 - **create_glossary_term** — Add terms to glossaries.
 
 You can ALSO directly mutate OpenMetadata governance via its REST API:

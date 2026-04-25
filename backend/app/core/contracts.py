@@ -17,12 +17,16 @@ Graceful demo fallback keeps the UI demoable without a running OM.
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 from typing import Any
 
 import httpx
 
 from app.core.config import settings
+
+CONTRACT_EXTENSION_PROPERTY = "metaflow_data_contract"
+_OM_STRING_TYPE_FALLBACK_NAME = "string"
 
 
 # ---------------------------------------------------------------------------
@@ -52,6 +56,14 @@ def _om_request(method: str, path: str, *, params: dict | None = None, json_body
 
 def _is_om_alive() -> bool:
     return _om_request("GET", "/api/v1/system/version") is not None
+
+
+def normalize_entity_fqn(value: str) -> str:
+    """Extract a table FQN from UI-friendly text like 'For service.db.schema.table'."""
+    text = (value or "").strip().strip("`'\"")
+    text = re.sub(r"^(for|table|entity|fqn|contract\s+for|use)\s+", "", text, flags=re.IGNORECASE).strip()
+    candidates = re.findall(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){2,}", text)
+    return candidates[-1] if candidates else text
 
 
 def _seed(key: str) -> int:
@@ -112,22 +124,32 @@ def _yaml_dump(obj: Any, indent: int = 0) -> str:
 def _derive_column_expectation(col: dict) -> dict:
     """Turn a column profile into a schema expectation block."""
     name = col.get("name", "")
+    name_l = name.lower()
     dtype = col.get("dataType", "STRING")
+    dtype_u = dtype.upper()
+    description = (col.get("description") or "").lower()
     profile = col.get("profile") or {}
     null_prop = profile.get("nullProportion")
     distinct = profile.get("distinctCount")
     total = profile.get("valuesCount") or 1
 
+    looks_identifier = name_l in {"id", "uuid", "customer_id"} or name_l.endswith("_id")
+    looks_time_required = name_l in {"created_at", "updated_at", "signup_date"} or name_l.endswith("_at")
+
     # Nullability: allow up to 2× observed + small buffer (cap 0.2)
     if null_prop is None:
         max_null = 0.05
-        required = False
+        required = looks_identifier or looks_time_required
     else:
         max_null = round(min(0.2, max(0.001, null_prop * 2 + 0.005)), 4)
-        required = null_prop < 0.005
+        required = null_prop < 0.005 or looks_identifier or looks_time_required
 
     # Uniqueness: if observed distinct == row count, likely a key
     unique = distinct is not None and total and distinct >= total * 0.995
+    if looks_identifier and ("primary" in description or name_l in {"id", "customer_id"}):
+        unique = True
+    if required:
+        max_null = min(max_null, 0.001)
 
     expectation: dict[str, Any] = {
         "name": name,
@@ -148,8 +170,12 @@ def _derive_column_expectation(col: dict) -> dict:
         }
 
     # Email regex
-    if "email" in name.lower() and dtype.upper() in ("STRING", "VARCHAR", "TEXT", "CHAR"):
+    is_email_value = name_l in {"email", "email_address", "customer_email"} or name_l.endswith("_email")
+    if is_email_value and dtype_u in ("STRING", "VARCHAR", "TEXT", "CHAR"):
         expectation["regex"] = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+
+    if "consent" in name_l and dtype_u in ("STRING", "VARCHAR", "TEXT", "CHAR"):
+        expectation["allowed_values"] = ["opted_in", "opted_out", "unknown"]
 
     return expectation
 
@@ -250,16 +276,24 @@ def _demo_contract(entity_fqn: str) -> dict:
 
 def generate_contract(entity_fqn: str, max_depth: int = 3) -> dict:
     """Walk upstream lineage, pull profiles, synthesize a data contract."""
+    entity_fqn = normalize_entity_fqn(entity_fqn)
     if not _is_om_alive():
-        return _demo_contract(entity_fqn)
+        if settings.demo_mode:
+            return _demo_contract(entity_fqn)
+        raise RuntimeError("OpenMetadata is unreachable; live contract generation cannot use demo data.")
 
     target = _om_request(
         "GET",
         f"/api/v1/tables/name/{entity_fqn}",
-        params={"fields": "columns,owners,profile,tableProfile,domain,tier"},
+        params={"fields": "columns,owners,profile,tags"},
     )
     if not target:
-        return _demo_contract(entity_fqn)
+        if settings.demo_mode:
+            return _demo_contract(entity_fqn)
+        raise ValueError(
+            f"Entity '{entity_fqn}' not found in OpenMetadata. Enter only the table FQN, "
+            "for example sample_db_service.ecommerce_db.shopify.dim_customer."
+        )
 
     # Walk upstream
     upstream_fqns: list[str] = []
@@ -273,9 +307,10 @@ def generate_contract(entity_fqn: str, max_depth: int = 3) -> dict:
             lineage = _om_request("GET", f"/api/v1/lineage/table/{tid}", params={"upstreamDepth": 1})
             if not lineage:
                 continue
+            lineage_nodes = {n.get("id"): n for n in lineage.get("nodes", []) if n.get("id")}
             for edge in lineage.get("upstreamEdges", []):
                 from_id = edge.get("fromEntity")
-                from_data = edge.get("fromEntityData") or {}
+                from_data = edge.get("fromEntityData") or lineage_nodes.get(from_id, {})
                 from_fqn = from_data.get("fullyQualifiedName")
                 if from_id and from_fqn and from_id not in visited:
                     visited.add(from_id)
@@ -323,6 +358,18 @@ def generate_contract(entity_fqn: str, max_depth: int = 3) -> dict:
                 "applies_to": col_exp["name"],
                 "test": "columnValuesToMatchRegex",
                 "params": {"regex": col_exp["regex"]},
+                "severity": "minor",
+                "dimension": "validity",
+            })
+        if col_exp.get("allowed_values"):
+            quality_gates.append({
+                "name": f"enum_{col_exp['name']}",
+                "applies_to": col_exp["name"],
+                "test": "columnValuesToBeInSet",
+                "params": {
+                    "allowedValues": col_exp["allowed_values"],
+                    "matchEnum": True,
+                },
                 "severity": "minor",
                 "dimension": "validity",
             })
@@ -393,6 +440,7 @@ def publish_contract(entity_fqn: str, contract: dict) -> dict:
     versions don't — in that case we attach the YAML as a custom property
     / extension payload so it's still visible in the UI.
     """
+    entity_fqn = normalize_entity_fqn(entity_fqn)
     if not _is_om_alive():
         return {
             "published": True,
@@ -401,16 +449,18 @@ def publish_contract(entity_fqn: str, contract: dict) -> dict:
             "preview_url": f"/table/{entity_fqn}/contract",
         }
 
-    # Resolve the table to get its id (needed for both endpoints)
-    table = _om_request("GET", f"/api/v1/tables/name/{entity_fqn}")
+    # Resolve the table to get its id and current extensions
+    table = _om_request("GET", f"/api/v1/tables/name/{entity_fqn}", params={"fields": "extension,columns,owners"})
     if not table:
         return {"published": False, "message": f"Entity '{entity_fqn}' not found"}
 
     payload = _to_om_contract_payload(entity_fqn, table, contract)
 
     # Try native dataContracts endpoint first (OM 1.5+)
-    result = _om_request("POST", "/api/v1/dataContracts", json_body=payload)
+    # Use PUT to perform an upsert, as POST will 400 if it already exists
+    result = _om_request("PUT", "/api/v1/dataContracts", json_body=payload)
     if result is not None:
+        _patch_contract_extension(table, contract)
         return {
             "published": True,
             "method": "dataContracts",
@@ -418,8 +468,41 @@ def publish_contract(entity_fqn: str, contract: dict) -> dict:
             "result": result,
         }
 
-    # Fallback: attach as extension on the table entity
-    patch = [{"op": "add", "path": "/extension/dataContract", "value": contract}]
+    # OM allows one data contract per entity. If one already exists, treat the
+    # publish as idempotent success instead of falling back to an extension.
+    existing = _om_request("GET", "/api/v1/dataContracts")
+    if existing:
+        for row in existing.get("data", []):
+            entity_ref = row.get("entity") or {}
+            if entity_ref.get("id") == table.get("id"):
+                _patch_contract_extension(table, contract)
+                return {
+                    "published": True,
+                    "method": "dataContracts",
+                    "status": row.get("status", "Draft"),
+                    "existing": True,
+                    "message": "A native OpenMetadata data contract already exists for this entity.",
+                    "result": row,
+                }
+
+    extension_result = _patch_contract_extension(table, contract)
+    if extension_result.get("published"):
+        return extension_result
+    return extension_result
+
+
+def _patch_contract_extension(table: dict, contract: dict) -> dict:
+    """Attach the generated contract YAML to the table custom properties."""
+    reg = _ensure_contract_property()
+    if not reg.get("ok"):
+        return {"published": False, "message": reg.get("reason", "custom property registration failed")}
+    contract_yaml = contract.get("yaml") or _yaml_dump(contract)
+    extension = table.get("extension") or {}
+    if not extension:
+        patch = [{"op": "add", "path": "/extension", "value": {CONTRACT_EXTENSION_PROPERTY: contract_yaml}}]
+    else:
+        op = "replace" if CONTRACT_EXTENSION_PROPERTY in extension else "add"
+        patch = [{"op": op, "path": f"/extension/{CONTRACT_EXTENSION_PROPERTY}", "value": contract_yaml}]
     base = settings.ai_sdk_host.rstrip("/")
     try:
         from app.core.auth import build_auth_headers
@@ -427,7 +510,7 @@ def publish_contract(entity_fqn: str, contract: dict) -> dict:
         resp = httpx.patch(
             f"{base}/api/v1/tables/{table['id']}",
             headers=headers,
-            json=patch,
+            content=_json_dumps(patch),
             timeout=8,
         )
         if resp.status_code < 400:
@@ -435,6 +518,49 @@ def publish_contract(entity_fqn: str, contract: dict) -> dict:
         return {"published": False, "message": f"Patch failed: HTTP {resp.status_code}"}
     except Exception as exc:
         return {"published": False, "message": f"Publish failed: {exc}"}
+
+
+def _ensure_contract_property() -> dict[str, Any]:
+    """Idempotently register the contract YAML custom property on tables."""
+    try:
+        from app.core.auth import build_auth_headers
+
+        base = settings.ai_sdk_host.rstrip("/")
+        headers = build_auth_headers()
+        with httpx.Client(timeout=10) as client:
+            table_type = client.get(f"{base}/api/v1/metadata/types/name/table", headers=headers)
+            if table_type.status_code != 200:
+                return {"ok": False, "reason": f"table type lookup failed: {table_type.status_code}"}
+            type_id = table_type.json().get("id")
+
+            string_type = client.get(
+                f"{base}/api/v1/metadata/types/name/{_OM_STRING_TYPE_FALLBACK_NAME}",
+                headers=headers,
+            )
+            if string_type.status_code != 200:
+                return {"ok": False, "reason": f"string type lookup failed: {string_type.status_code}"}
+            string_type_id = string_type.json().get("id")
+
+            create = client.put(
+                f"{base}/api/v1/metadata/types/{type_id}",
+                headers=build_auth_headers("application/json"),
+                json={
+                    "name": CONTRACT_EXTENSION_PROPERTY,
+                    "description": "MetaFlow generated data contract YAML for review and audit.",
+                    "propertyType": {"id": string_type_id, "type": "type"},
+                },
+            )
+            if create.status_code in (200, 201, 400, 409):
+                return {"ok": True, "created": create.status_code in (200, 201)}
+            return {"ok": False, "reason": f"custom property create failed: {create.status_code} {create.text[:120]}"}
+    except Exception as exc:
+        return {"ok": False, "reason": str(exc)[:200]}
+
+
+def _json_dumps(value: Any) -> str:
+    import json
+
+    return json.dumps(value)
 
 
 # ---------------------------------------------------------------------------
@@ -502,13 +628,8 @@ def _to_om_contract_payload(entity_fqn: str, table: dict, contract: dict) -> dic
         "entity": {
             "id": table.get("id"),
             "type": "table",
-            "href": f"{settings.ai_sdk_host.rstrip('/')}/api/v1/tables/{table.get('id')}",
         },
-        "schema": om_schema,
-        "semantics": semantics,
-        "qualityExpectations": quality_expectations,
         "owners": owners,
-        "reviewers": [],
     }
 
 
@@ -522,6 +643,7 @@ _GATE_TO_TEST_DEFINITION = {
     "columnValuesToBeNotNull": "columnValuesToBeNotNull",
     "columnValuesToBeUnique": "columnValuesToBeUnique",
     "columnValuesToMatchRegex": "columnValuesToMatchRegex",
+    "columnValuesToBeInSet": "columnValuesToBeInSet",
     "columnValueMaxToBeBetween": "columnValueMaxToBeBetween",
     "tableRowCountToBeBetween": "tableRowCountToBeBetween",
 }
@@ -532,6 +654,7 @@ def create_test_cases_for_contract(entity_fqn: str, contract: dict) -> dict:
 
     Returns a summary of created/skipped/failed test cases.
     """
+    entity_fqn = normalize_entity_fqn(entity_fqn)
     if not _is_om_alive():
         return {
             "demo": True,
@@ -559,11 +682,21 @@ def create_test_cases_for_contract(entity_fqn: str, contract: dict) -> dict:
         is_table_test = applies_to == "table"
         if is_table_test:
             entity_link = f"<#E::table::{entity_fqn}>"
+            test_case_fqn = f"{entity_fqn}.{gate.get('name')}"
         else:
             entity_link = f"<#E::table::{entity_fqn}::columns::{applies_to}>"
+            test_case_fqn = f"{entity_fqn}.{applies_to}.{gate.get('name')}"
+
+        existing = _om_request("GET", f"/api/v1/dataQuality/testCases/name/{test_case_fqn}")
+        if existing:
+            skipped.append({"name": gate.get("name"), "reason": "already exists", "id": existing.get("id")})
+            continue
 
         params = gate.get("params") or {}
-        param_values = [{"name": k, "value": str(v)} for k, v in params.items()]
+        param_values = [
+            {"name": k, "value": _json_dumps(v) if isinstance(v, (list, dict)) else str(v)}
+            for k, v in params.items()
+        ]
 
         payload = {
             "name": gate.get("name"),
@@ -575,9 +708,17 @@ def create_test_cases_for_contract(entity_fqn: str, contract: dict) -> dict:
         }
         result = _om_request("POST", "/api/v1/dataQuality/testCases", json_body=payload)
         if result:
-            created.append(gate.get("name"))
+            created.append({"name": gate.get("name"), "id": result.get("id")})
         else:
-            failed.append({"gate": gate.get("name"), "reason": "POST returned non-2xx"})
+            existing_after_post = _om_request("GET", f"/api/v1/dataQuality/testCases/name/{test_case_fqn}")
+            if existing_after_post:
+                skipped.append({
+                    "name": gate.get("name"),
+                    "reason": "already exists",
+                    "id": existing_after_post.get("id"),
+                })
+            else:
+                failed.append({"gate": gate.get("name"), "reason": "POST returned non-2xx"})
 
     return {
         "entity_fqn": entity_fqn,
@@ -598,6 +739,7 @@ def create_test_cases_for_contract(entity_fqn: str, contract: dict) -> dict:
 
 def get_contract_status(entity_fqn: str) -> dict:
     """Return the current Data Contract status for an entity."""
+    entity_fqn = normalize_entity_fqn(entity_fqn)
     if not _is_om_alive():
         s = _seed(entity_fqn)
         return {
@@ -616,6 +758,21 @@ def get_contract_status(entity_fqn: str) -> dict:
         params={"entity": f"table:{entity_fqn}"},
     )
     if not listing or not listing.get("data"):
+        table = _om_request("GET", f"/api/v1/tables/name/{entity_fqn}")
+        all_contracts = _om_request("GET", "/api/v1/dataContracts")
+        table_id = table.get("id") if table else None
+        if all_contracts and table_id:
+            for row in all_contracts.get("data", []):
+                if (row.get("entity") or {}).get("id") == table_id:
+                    return {
+                        "entity_fqn": entity_fqn,
+                        "status": row.get("status", "Draft"),
+                        "name": row.get("name"),
+                        "passing_tests": row.get("passingTests"),
+                        "failing_tests": row.get("failingTests"),
+                        "last_evaluated_at": row.get("updatedAt"),
+                        "result": row,
+                    }
         return {
             "entity_fqn": entity_fqn,
             "status": "None",
@@ -694,6 +851,7 @@ def propose_contract_fix(entity_fqn: str, violation_summary: str) -> dict:
     ``diff`` + ``patch_paths`` + ``ticket_draft`` that the GitHub or
     Jira agent can dispatch.
     """
+    entity_fqn = normalize_entity_fqn(entity_fqn)
     table_short = entity_fqn.rsplit(".", 1)[-1]
     summary_lower = violation_summary.lower()
 

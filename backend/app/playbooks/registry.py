@@ -44,7 +44,7 @@ IMPACT_RADAR = Playbook(
         "and pipelines, and generates an impact report."
     ),
     input_label="Change description",
-    input_placeholder="e.g. Dropping column 'email' from customers table",
+    input_placeholder="Dropping column email from sample_db_service.ecommerce_db.shopify.dim_customer",
     steps=[
         PlaybookStep(
             instruction=(
@@ -87,7 +87,7 @@ PII_COMPLIANCE_SWEEP = Playbook(
         "apply missing governance tags."
     ),
     input_label="Search scope",
-    input_placeholder="e.g. All tables in the 'shopify' database",
+    input_placeholder="sample_db_service.ecommerce_db.shopify",
     steps=[
         PlaybookStep(
             instruction=(
@@ -125,7 +125,7 @@ DQ_FIRE_DRILL = Playbook(
         "trace the issue through lineage, and recommend remediation steps."
     ),
     input_label="Failure description",
-    input_placeholder="e.g. Null rate spike on orders.amount column",
+    input_placeholder="sample_db_service.ecommerce_db.shopify.dim_customer.email.regex_email",
     steps=[
         PlaybookStep(
             instruction=(
@@ -164,7 +164,7 @@ METADATA_HEALTH = Playbook(
         "missing descriptions, owners, or tags and suggest fixes."
     ),
     input_label="Schema to audit",
-    input_placeholder="e.g. The 'analytics' schema in BigQuery",
+    input_placeholder="sample_db_service.ecommerce_db.shopify",
     steps=[
         PlaybookStep(
             instruction=(
@@ -206,7 +206,7 @@ DQ_REPORT_NOTIFY = Playbook(
         "GitHub gist with a detailed report, and post an alert to Slack."
     ),
     input_label="DQ scope",
-    input_placeholder="e.g. Tables in the 'ecommerce' database with failed tests",
+    input_placeholder="sample_db_service.ecommerce_db.shopify.dim_customer.email.regex_email",
     steps=[
         PlaybookStep(
             instruction=(
@@ -247,7 +247,7 @@ PII_TRACK_NOTIFY = Playbook(
         "status, create a GitHub tracking issue, and notify via Slack."
     ),
     input_label="Compliance scope",
-    input_placeholder="e.g. All tables in the 'marketing' domain",
+    input_placeholder="sample_db_service.ecommerce_db.shopify",
     steps=[
         PlaybookStep(
             instruction=(
@@ -301,7 +301,7 @@ DQ_SHEET_ALERT = Playbook(
         "Google Sheet with the results, and alert the team on Slack."
     ),
     input_label="DQ scope",
-    input_placeholder="e.g. Tables in the 'analytics' database with DQ failures",
+    input_placeholder="sample_db_service.ecommerce_db.shopify.dim_customer.email.regex_email",
     steps=[
         PlaybookStep(
             instruction=(
@@ -341,7 +341,7 @@ METADATA_AUDIT_DOC = Playbook(
         "Google Doc report, create a GitHub tracking issue, and notify Slack."
     ),
     input_label="Audit scope",
-    input_placeholder="e.g. All tables in the 'warehouse' schema",
+    input_placeholder="sample_db_service.ecommerce_db.shopify",
     steps=[
         PlaybookStep(
             instruction=(
@@ -398,7 +398,7 @@ DQ_JIRA_EMAIL = Playbook(
         "Jira ticket to track remediation, and email the data owner."
     ),
     input_label="DQ scope",
-    input_placeholder="e.g. Failed tests on the 'orders' table",
+    input_placeholder="sample_db_service.ecommerce_db.shopify.dim_customer.email.regex_email",
     steps=[
         PlaybookStep(
             instruction=(
@@ -437,7 +437,7 @@ LINEAGE_NOTION_JIRA = Playbook(
         "Notion page, and create a Jira ticket for follow-up actions."
     ),
     input_label="Entity to trace",
-    input_placeholder="e.g. The 'customer_orders' table in BigQuery",
+    input_placeholder="sample_db_service.ecommerce_db.shopify.dim_customer",
     steps=[
         PlaybookStep(
             instruction=(
@@ -478,7 +478,7 @@ FULL_INCIDENT_RESPONSE = Playbook(
         "GitHub issue, email the owner, and alert Slack."
     ),
     input_label="Incident description",
-    input_placeholder="e.g. Critical null rate spike on orders.amount affecting dashboards",
+    input_placeholder="Null rate on sample_db_service.ecommerce_db.shopify.dim_customer.customer_id exceeded threshold",
     steps=[
         PlaybookStep(
             instruction=(
@@ -555,7 +555,7 @@ DQ_TEST_RECOMMENDER = Playbook(
         "sensible default parameters. The AI explains its reasoning."
     ),
     input_label="Table to analyze",
-    input_placeholder="e.g. shopify_db.public.orders",
+    input_placeholder="sample_db_service.ecommerce_db.shopify.dim_customer",
     steps=[
         PlaybookStep(
             instruction=(
@@ -612,7 +612,7 @@ PLATFORM_HEALTH_KPI = Playbook(
         "comprehensive Google Sheet dashboard with Slack summary."
     ),
     input_label="Report scope",
-    input_placeholder="e.g. All databases, or filter to 'analytics' service",
+    input_placeholder="sample_db_service.ecommerce_db.shopify",
     steps=[
         PlaybookStep(
             instruction=(
@@ -670,7 +670,7 @@ CONTRACT_COPILOT = Playbook(
         "PR if the contract is ever violated."
     ),
     input_label="Target table FQN",
-    input_placeholder="e.g. warehouse.analytics.daily_revenue",
+    input_placeholder="sample_db_service.ecommerce_db.shopify.dim_customer",
     steps=[
         PlaybookStep(
             instruction=(
@@ -717,13 +717,13 @@ BULK_LINEAGE_FROM_QUERY_LOGS = Playbook(
     name="Bulk Lineage from Query Logs",
     icon="git-branch",
     description=(
-        "Scale-out lineage authoring (the Claude-demo parallel from the OM "
-        "talk). Reads recorded query history, infers source -> target pairs "
+        "Scale-out lineage authoring inspired by the OpenMetadata AI agent "
+        "workflow. Reads recorded query history, infers source -> target pairs "
         "from JOIN / INSERT INTO patterns, then writes lineage edges into "
         "OpenMetadata in one batch."
     ),
     input_label="Service or scope",
-    input_placeholder="e.g. snowflake (or leave blank for all services)",
+    input_placeholder="sample_db_service",
     steps=[
         PlaybookStep(
             instruction=(

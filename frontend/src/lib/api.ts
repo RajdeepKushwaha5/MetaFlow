@@ -198,7 +198,15 @@ export async function updateIntegrations(data: IntegrationsUpdate): Promise<Inte
 // Data Reliability
 // ---------------------------------------------------------------------------
 
+function normalizeEntityFqn(value: string): string {
+  const trimmed = value.trim().replace(/^[`'"]|[`'"]$/g, "");
+  const withoutPrefix = trimmed.replace(/^(for|table|entity|fqn|contract\s+for|use)\s+/i, "").trim();
+  const candidates = withoutPrefix.match(/[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){2,}/g);
+  return candidates ? candidates[candidates.length - 1] : withoutPrefix;
+}
+
 export async function fetchImpact(entityFqn: string, maxDepth = 3): Promise<ImpactGraph> {
+  entityFqn = normalizeEntityFqn(entityFqn);
   const res = await fetch(
     `${BASE}/api/reliability/impact?entity_fqn=${encodeURIComponent(entityFqn)}&max_depth=${maxDepth}`
   );
@@ -257,6 +265,7 @@ export async function dispatchTicket(
 }
 
 export async function fetchContract(entityFqn: string, maxDepth = 3): Promise<ContractResponse> {
+  entityFqn = normalizeEntityFqn(entityFqn);
   const res = await fetch(
     `${BASE}/api/reliability/contract?entity_fqn=${encodeURIComponent(entityFqn)}&max_depth=${maxDepth}`
   );
@@ -268,6 +277,7 @@ export async function publishContract(
   entityFqn: string,
   contract: DataContract
 ): Promise<PublishContractResult> {
+  entityFqn = normalizeEntityFqn(entityFqn);
   const res = await fetch(`${BASE}/api/reliability/contract/publish`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -278,6 +288,7 @@ export async function publishContract(
 }
 
 export async function fetchContractStatus(entityFqn: string): Promise<ContractStatusResponse> {
+  entityFqn = normalizeEntityFqn(entityFqn);
   const res = await fetch(
     `${BASE}/api/reliability/contract/status?entity_fqn=${encodeURIComponent(entityFqn)}`
   );
@@ -289,6 +300,7 @@ export async function createContractTestCases(
   entityFqn: string,
   contract: DataContract
 ): Promise<CreateTestCasesResult> {
+  entityFqn = normalizeEntityFqn(entityFqn);
   const res = await fetch(`${BASE}/api/reliability/contract/create-tests`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -302,6 +314,7 @@ export async function proposeContractHeal(
   entityFqn: string,
   violationSummary: string
 ): Promise<ContractHealResponse> {
+  entityFqn = normalizeEntityFqn(entityFqn);
   const res = await fetch(`${BASE}/api/reliability/contract/heal`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -403,17 +416,77 @@ export async function writeHealthScore(
   return res.json();
 }
 
+export interface DescriptionWriteResult {
+  ok: boolean;
+  entity_fqn: string;
+  entity_type: string;
+  old_description?: string;
+  description?: string;
+  version?: number;
+  om_url?: string;
+  reason?: string;
+  detail?: unknown;
+}
+
+export async function writeEntityDescription(
+  entityFqn: string,
+  description: string,
+  entityType = "tables"
+): Promise<DescriptionWriteResult> {
+  const res = await fetch(`${BASE}/api/governance/description`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entity_fqn: entityFqn, description, entity_type: entityType }),
+  });
+  if (!res.ok) await parseError(res, "Failed to write description");
+  return res.json();
+}
+
+export interface GlossaryWriteResult {
+  ok: boolean;
+  glossary?: string;
+  term?: string;
+  glossary_created?: boolean;
+  term_created?: boolean;
+  glossary_id?: string;
+  term_id?: string;
+  reason?: string;
+  detail?: unknown;
+}
+
+export async function createGovernanceGlossaryTerm(
+  glossaryName: string,
+  glossaryDescription: string,
+  termName: string,
+  termDescription: string
+): Promise<GlossaryWriteResult> {
+  const res = await fetch(`${BASE}/api/governance/glossary`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      glossary_name: glossaryName,
+      glossary_description: glossaryDescription,
+      term_name: termName,
+      term_description: termDescription,
+    }),
+  });
+  if (!res.ok) await parseError(res, "Failed to create glossary term");
+  return res.json();
+}
+
 // ─── Steward (autonomous loop) ───
 
 export interface StewardState {
-  running: boolean;
-  enabled: boolean;
-  loop_count: number;
+  running?: boolean;
+  enabled?: boolean;
+  loop_count?: number;
   last_run?: string | null;
   next_run?: string | null;
   interval_seconds?: number;
+  poll_seconds?: number;
   events_seen?: number;
   actions_taken?: number;
+  [k: string]: unknown;
 }
 
 export async function fetchStewardState(): Promise<StewardState> {
@@ -424,9 +497,12 @@ export async function fetchStewardState(): Promise<StewardState> {
 
 export interface StewardDigest {
   date: string;
-  events: Array<Record<string, unknown>>;
-  actions: Array<Record<string, unknown>>;
+  events?: Array<Record<string, unknown>>;
+  actions?: Array<Record<string, unknown>>;
   summary?: Record<string, unknown>;
+  totals?: Record<string, number>;
+  categories?: Record<string, unknown>;
+  actions_taken?: number;
 }
 
 export async function fetchStewardDigest(): Promise<StewardDigest> {
@@ -457,15 +533,15 @@ export interface PersonaInfo {
 }
 
 export interface PersonasList {
-  backend: "ai_sdk" | "local";
+  backend: string;
   personas: PersonaInfo[];
 }
 
 export interface PersonasPublishResult {
   backend: string;
-  created: number;
-  updated: number;
-  failed: number;
+  created: string[];
+  updated: string[];
+  failed: Array<{ name: string; error: string }>;
   total: number;
   published_at: string;
 }
@@ -524,12 +600,50 @@ export async function fetchConnectorExport(): Promise<Record<string, unknown>> {
 // ─── Metrics scan ───
 
 export interface MetricsScan {
+  demo?: boolean;
+  scanned_at?: number;
   generated_at?: string;
+  totals?: {
+    tables?: number;
+    topics?: number;
+    dashboards?: number;
+    pipelines?: number;
+  };
   total_tables_scanned?: number;
-  pii?: { gaps: number; coverage_pct: number };
-  contracts?: { with_contract: number; coverage_pct: number };
-  dq?: { passing: number; failing: number; pass_rate_pct: number };
-  ownership?: { with_owner: number; coverage_pct: number };
+  pii?: {
+    columns_with_pii_tag?: number;
+    columns_likely_pii_missing_tag?: number;
+    auto_taggable?: number;
+    needs_human_review?: number;
+    gaps?: number;
+    coverage_pct?: number;
+  };
+  contracts?: {
+    tables_with_contracts?: number;
+    contract_coverage_pct?: number;
+    active?: number;
+    draft?: number;
+    violated?: number;
+    with_contract?: number;
+    coverage_pct?: number;
+  };
+  data_quality?: {
+    test_cases?: number;
+    passing?: number;
+    failing?: number;
+    pass_rate_pct?: number;
+  };
+  dq?: { passing?: number; failing?: number; pass_rate_pct?: number };
+  ownership?: {
+    tables_with_owner?: number;
+    ownership_coverage_pct?: number;
+    with_owner?: number;
+    coverage_pct?: number;
+  };
+  description?: {
+    tables_with_description?: number;
+    description_coverage_pct?: number;
+  };
   [k: string]: unknown;
 }
 

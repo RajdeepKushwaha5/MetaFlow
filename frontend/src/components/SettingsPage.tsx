@@ -16,12 +16,13 @@ import {
 } from "lucide-react";
 import type { LLMSettings, LLMSettingsUpdate } from "../lib/types";
 import { fetchSettings, updateSettings } from "../lib/api";
-import { GeminiLogo, OpenAILogo } from "./PlatformLogos";
+import { GeminiLogo, OpenAILogo, AnthropicLogo } from "./PlatformLogos";
 import IntegrationsPanel from "./IntegrationsPanel";
 
 const PROVIDER_LABELS: Record<string, string> = {
   gemini: "Google Gemini",
   openai: "OpenAI",
+  anthropic: "Anthropic Claude",
 };
 
 const DEFAULT_SETTINGS: LLMSettings = {
@@ -29,6 +30,7 @@ const DEFAULT_SETTINGS: LLMSettings = {
   model: "gemini-2.5-flash",
   gemini_key_set: false,
   openai_key_set: false,
+  anthropic_key_set: false,
   gemini_models: [
     "gemini-2.5-flash",
     "gemini-2.5-pro",
@@ -44,6 +46,13 @@ const DEFAULT_SETTINGS: LLMSettings = {
     "o1",
     "o1-mini",
     "o3-mini",
+  ],
+  anthropic_models: [
+    "claude-opus-4-20250514",
+    "claude-sonnet-4-20250514",
+    "claude-3-5-sonnet-latest",
+    "claude-3-5-haiku-latest",
+    "claude-3-opus-latest",
   ],
 };
 
@@ -62,8 +71,10 @@ export default function SettingsPage({ onModelChange }: SettingsPageProps) {
   const [model, setModel] = useState("");
   const [geminiKey, setGeminiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
+  const [anthropicKey, setAnthropicKey] = useState("");
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
+  const [showAnthropicKey, setShowAnthropicKey] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
@@ -73,9 +84,10 @@ export default function SettingsPage({ onModelChange }: SettingsPageProps) {
   // Track which keys are configured on server
   const [geminiKeySet, setGeminiKeySet] = useState(false);
   const [openaiKeySet, setOpenaiKeySet] = useState(false);
+  const [anthropicKeySet, setAnthropicKeySet] = useState(false);
 
   // Confirmation for removing keys
-  const [confirmRemove, setConfirmRemove] = useState<"gemini" | "openai" | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<"gemini" | "openai" | "anthropic" | null>(null);
 
   // Error state for initial load
   const [loadError, setLoadError] = useState(false);
@@ -99,6 +111,7 @@ export default function SettingsPage({ onModelChange }: SettingsPageProps) {
       setModel(data.model);
       setGeminiKeySet(data.gemini_key_set);
       setOpenaiKeySet(data.openai_key_set);
+      setAnthropicKeySet(data.anthropic_key_set ?? false);
     } catch {
       setLoadError(true);
       setSettings(DEFAULT_SETTINGS);
@@ -115,7 +128,9 @@ export default function SettingsPage({ onModelChange }: SettingsPageProps) {
 
   const modelsForProvider = (p: string): string[] => {
     if (!settings) return [];
-    return p === "openai" ? settings.openai_models : settings.gemini_models;
+    if (p === "openai") return settings.openai_models;
+    if (p === "anthropic") return settings.anthropic_models ?? [];
+    return settings.gemini_models;
   };
 
   const handleProviderChange = (newProvider: string) => {
@@ -154,6 +169,17 @@ export default function SettingsPage({ onModelChange }: SettingsPageProps) {
         return;
       }
     }
+    if (provider === "anthropic") {
+      const key = anthropicKey || "";
+      if (key && (!key.startsWith("sk-ant-") || key.length < 20)) {
+        showToast("error", "Invalid Anthropic key format. Keys start with \"sk-ant-\".");
+        return;
+      }
+      if (!key && !anthropicKeySet) {
+        showToast("error", "Please add an Anthropic API key before selecting this provider.");
+        return;
+      }
+    }
 
     // Ensure a model is selected
     if (!model) {
@@ -169,6 +195,7 @@ export default function SettingsPage({ onModelChange }: SettingsPageProps) {
       };
       if (geminiKey) update.gemini_key = geminiKey;
       if (openaiKey) update.openai_key = openaiKey;
+      if (anthropicKey) update.anthropic_key = anthropicKey;
 
       const result = await updateSettings(update);
       setSettings(result);
@@ -176,8 +203,10 @@ export default function SettingsPage({ onModelChange }: SettingsPageProps) {
       setModel(result.model);
       setGeminiKeySet(result.gemini_key_set);
       setOpenaiKeySet(result.openai_key_set);
+      setAnthropicKeySet(result.anthropic_key_set ?? false);
       setGeminiKey("");
       setOpenaiKey("");
+      setAnthropicKey("");
       onModelChange?.(result.model, result.provider);
       showToast("success", "Settings saved. Orchestrator rebuilt.");
     } catch (err) {
@@ -187,15 +216,18 @@ export default function SettingsPage({ onModelChange }: SettingsPageProps) {
     setSaving(false);
   };
 
-  const handleRemoveKey = async (which: "gemini" | "openai") => {
+  const handleRemoveKey = async (which: "gemini" | "openai" | "anthropic") => {
     setSaving(true);
     try {
-      const update: LLMSettingsUpdate =
-        which === "gemini" ? { gemini_key: "" } : { openai_key: "" };
+      let update: LLMSettingsUpdate;
+      if (which === "gemini") update = { gemini_key: "" };
+      else if (which === "openai") update = { openai_key: "" };
+      else update = { anthropic_key: "" };
       const result = await updateSettings(update);
       setSettings(result);
       setGeminiKeySet(result.gemini_key_set);
       setOpenaiKeySet(result.openai_key_set);
+      setAnthropicKeySet(result.anthropic_key_set ?? false);
       // If the active provider's key was removed, warn user
       if (which === provider) {
         showToast("error", `${PROVIDER_LABELS[which]} key removed — switch provider or add a new key to use the orchestrator.`);
@@ -328,10 +360,11 @@ export default function SettingsPage({ onModelChange }: SettingsPageProps) {
             Select which AI provider powers the orchestrator.
           </p>
 
-          <div className="grid grid-cols-2 gap-3">
-            {(["gemini", "openai"] as const).map((p) => {
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {(["gemini", "openai", "anthropic"] as const).map((p) => {
               const isActive = provider === p;
-              const keyConfigured = p === "gemini" ? geminiKeySet : openaiKeySet;
+              const keyConfigured =
+                p === "gemini" ? geminiKeySet : p === "openai" ? openaiKeySet : anthropicKeySet;
               return (
                 <button
                   key={p}
@@ -350,8 +383,10 @@ export default function SettingsPage({ onModelChange }: SettingsPageProps) {
                   <div className="flex items-center gap-3 mb-3">
                     {p === "gemini" ? (
                       <GeminiLogo size={24} />
-                    ) : (
+                    ) : p === "openai" ? (
                       <OpenAILogo size={24} className="text-zinc-300" />
+                    ) : (
+                      <AnthropicLogo size={24} />
                     )}
                     <span className={`text-[15px] font-semibold font-display ${isActive ? "text-white" : "text-zinc-400"}`}>
                       {PROVIDER_LABELS[p]}
@@ -557,6 +592,51 @@ export default function SettingsPage({ onModelChange }: SettingsPageProps) {
                   aria-label={showOpenaiKey ? "Hide OpenAI API key" : "Show OpenAI API key"}
                 >
                   {showOpenaiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Anthropic Key */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[13px] text-zinc-300 font-semibold flex items-center gap-2">
+                  <Key size={13} className="text-zinc-500" />
+                  Anthropic API Key
+                </label>
+                <div className="flex items-center gap-2">
+                  {anthropicKeySet && (
+                    <>
+                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-brand-500/10 text-brand-400 border border-brand-500/15 font-semibold">
+                        CONFIGURED
+                      </span>
+                      <button
+                        onClick={() => setConfirmRemove("anthropic")}
+                        className="p-1 rounded-md hover:bg-red-500/10 text-zinc-600 hover:text-red-400 transition-colors"
+                        title="Remove key"
+                        aria-label="Remove Anthropic API key"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="relative">
+                <input
+                  type={showAnthropicKey ? "text" : "password"}
+                  value={anthropicKey}
+                  onChange={(e) => setAnthropicKey(e.target.value)}
+                  placeholder={anthropicKeySet ? "Enter new key to update..." : "sk-ant-..."}
+                  className="w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 pr-12 text-[14px] text-zinc-200 font-mono
+                             placeholder:text-zinc-700 focus:outline-none focus:border-brand-500/25 focus:bg-white/[0.035] focus:shadow-glow
+                             transition-all duration-300"
+                />
+                <button
+                  onClick={() => setShowAnthropicKey(!showAnthropicKey)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-zinc-600 hover:text-zinc-300 transition-colors"
+                  aria-label={showAnthropicKey ? "Hide Anthropic API key" : "Show Anthropic API key"}
+                >
+                  {showAnthropicKey ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
             </div>

@@ -64,7 +64,9 @@ interface Props {
   initialFqn?: string;
 }
 
-export default function ImpactRadar({ initialFqn = "warehouse.analytics.orders" }: Readonly<Props>) {
+export default function ImpactRadar({
+  initialFqn = "sample_db_service.ecommerce_db.shopify.dim_customer",
+}: Readonly<Props>) {
   const [fqn, setFqn] = useState(initialFqn);
   const [input, setInput] = useState(initialFqn);
   const [data, setData] = useState<ImpactGraph | null>(null);
@@ -177,7 +179,7 @@ export default function ImpactRadar({ initialFqn = "warehouse.analytics.orders" 
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="entity FQN (e.g. warehouse.analytics.orders)"
+              placeholder="entity FQN (e.g. sample_db_service.ecommerce_db.shopify.dim_customer)"
               className="w-full pl-9 pr-3 py-2 text-sm bg-surface-1/60 border border-white/[0.08] rounded-lg text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-brand-500/40"
             />
           </div>
@@ -193,7 +195,7 @@ export default function ImpactRadar({ initialFqn = "warehouse.analytics.orders" 
           <div className="flex items-center gap-2">
             {data.demo && (
               <span className="px-2 py-1 text-[10px] uppercase tracking-wider bg-zinc-700/50 text-zinc-400 rounded border border-zinc-600/40 font-mono">
-                demo mode
+                offline fallback
               </span>
             )}
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${SEVERITY_COLORS[data.severity]}`}>

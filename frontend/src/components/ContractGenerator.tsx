@@ -3,7 +3,9 @@ import {
   AlertTriangle,
   Check,
   ClipboardCopy,
+  Database,
   FileText,
+  GitBranch,
   Loader2,
   Send,
   Shield,
@@ -15,8 +17,24 @@ import type {
   ContractQualityGate,
   PublishContractResult,
 } from "../lib/types";
+import MiniFlow, { type FlowNodeSpec, type FlowEdgeSpec } from "./MiniFlow";
 
-const DEFAULT_ENTITY = "warehouse.analytics.daily_revenue";
+const DEFAULT_ENTITY = "sample_db_service.ecommerce_db.shopify.dim_customer";
+
+const CONTRACT_FLOW_NODES: FlowNodeSpec[] = [
+  { id: "entity", tone: "data", label: "Target Entity", sublabel: "table FQN", icon: Database, col: 0 },
+  { id: "lineage", tone: "process", label: "Lineage + Profiler", sublabel: "OM metadata", icon: GitBranch, col: 1 },
+  { id: "agent", tone: "agent", label: "Contract Agent", sublabel: "synthesize spec", icon: Sparkles, col: 2 },
+  { id: "yaml", tone: "output", label: "Contract YAML", sublabel: "v1.12 spec", icon: FileText, col: 3, row: 0 },
+  { id: "om", tone: "output", label: "OpenMetadata", sublabel: "publish back", icon: Shield, col: 3, row: 1 },
+];
+
+const CONTRACT_FLOW_EDGES: FlowEdgeSpec[] = [
+  { from: "entity", to: "lineage" },
+  { from: "lineage", to: "agent", label: "context" },
+  { from: "agent", to: "yaml" },
+  { from: "agent", to: "om", dashed: true },
+];
 
 const SEVERITY_COLORS: Record<string, string> = {
   blocker: "bg-red-500/15 text-red-300 border-red-500/40",
@@ -113,6 +131,9 @@ export default function ContractGenerator() {
         </p>
       </div>
 
+      {/* Pipeline diagram */}
+      <MiniFlow nodes={CONTRACT_FLOW_NODES} edges={CONTRACT_FLOW_EDGES} height={280} />
+
       {/* Input */}
       <form
         onSubmit={(e) => {
@@ -124,7 +145,7 @@ export default function ContractGenerator() {
         <input
           value={entityFqn}
           onChange={(e) => setEntityFqn(e.target.value)}
-          placeholder="Entity FQN (e.g. warehouse.analytics.daily_revenue)"
+          placeholder="Entity FQN (e.g. sample_db_service.ecommerce_db.shopify.dim_customer)"
           className="flex-1 rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-white/30 focus:outline-none"
         />
         <button
@@ -177,7 +198,7 @@ export default function ContractGenerator() {
             <p className="text-sm leading-relaxed text-slate-300">{response.narrative}</p>
             {response.demo && (
               <div className="mt-3 inline-flex rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-blue-300">
-                Demo data — OpenMetadata not connected
+                Offline fallback — OpenMetadata not connected
               </div>
             )}
           </div>

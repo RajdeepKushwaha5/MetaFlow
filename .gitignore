@@ -38,3 +38,19 @@ test_payload.json
 *.sqlite
 *.sqlite3
 backend/conversations.db
+
+# Local secrets and runtime artifacts
+backend/app/service-account.json
+backend/*.log
+frontend/*.log
+scratch/
+playbook_result*.txt
+demo_*.txt
+METAFLOW_FINAL_DEMO_SCRIPT.txt
+PRODUCTION_FEATURE_TEST_STEPS.txt
+TESTING_PLAN.md
+backend/test_publish*.py
+smoke_test.ps1
+test_all.ps1
+docker-compose.dev.yml
+docker-compose.sandbox.yml

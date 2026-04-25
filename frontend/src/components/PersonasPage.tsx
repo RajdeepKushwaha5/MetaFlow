@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Send, Sparkles, Upload, Users } from "lucide-react";
+import { Bot, Cpu, Loader2, MessageSquare, Send, Sparkles, Upload, Users } from "lucide-react";
 import {
   fetchPersonas,
   publishPersonas,
@@ -7,10 +7,26 @@ import {
   type PersonaInfo,
   type PersonasPublishResult,
 } from "../lib/api";
+import MiniFlow, { type FlowNodeSpec, type FlowEdgeSpec } from "./MiniFlow";
+
+const PERSONA_FLOW_NODES: FlowNodeSpec[] = [
+  { id: "specialist", tone: "data", label: "MetaFlow Specialist", sublabel: "LangGraph agent", icon: Bot, col: 0 },
+  { id: "publish", tone: "process", label: "Publish", sublabel: "POST /personas", icon: Upload, col: 1 },
+  { id: "om", tone: "agent", label: "OM AI Studio", sublabel: "persona runtime", icon: Cpu, col: 2 },
+  { id: "user", tone: "input", label: "User Prompt", sublabel: "natural language", icon: MessageSquare, col: 3 },
+  { id: "reply", tone: "output", label: "Grounded Reply", sublabel: "tool-calling enabled", icon: Sparkles, col: 4 },
+];
+
+const PERSONA_FLOW_EDGES: FlowEdgeSpec[] = [
+  { from: "specialist", to: "publish" },
+  { from: "publish", to: "om", label: "persona spec" },
+  { from: "user", to: "om", label: "invoke" },
+  { from: "om", to: "reply" },
+];
 
 export default function PersonasPage() {
   const [personas, setPersonas] = useState<PersonaInfo[]>([]);
-  const [backend, setBackend] = useState<"ai_sdk" | "local">("local");
+  const [backend, setBackend] = useState("local");
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
   const [publishRes, setPublishRes] = useState<PersonasPublishResult | null>(null);
@@ -70,7 +86,7 @@ export default function PersonasPage() {
             <h1 className="text-xl font-bold text-white tracking-tight">AI Studio Personas</h1>
             <p className="text-sm text-zinc-500 mt-0.5">
               Publish each MetaFlow specialist as a native OM AI Studio persona. Backend:{" "}
-              <span className={backend === "ai_sdk" ? "text-emerald-400" : "text-amber-400"}>{backend}</span>
+              <span className={backend === "ai_sdk" || backend === "openmetadata_rest" ? "text-emerald-400" : "text-amber-400"}>{backend}</span>
             </p>
           </div>
         </div>
@@ -87,11 +103,20 @@ export default function PersonasPage() {
       {publishRes && (
         <div className="rounded-lg p-3 text-xs bg-brand-500/[0.06] border border-brand-500/20 text-zinc-300 flex items-center gap-3">
           <Sparkles size={14} className="text-brand-400" />
-          Published <b className="text-emerald-300">{publishRes.created}</b> created ·{" "}
-          <b className="text-amber-300">{publishRes.updated}</b> updated ·{" "}
-          <b className="text-red-300">{publishRes.failed}</b> failed (of {publishRes.total}) — backend={publishRes.backend}
+          Published <b className="text-emerald-300">{publishRes.created.length}</b> created ·{" "}
+          <b className="text-amber-300">{publishRes.updated.length}</b> updated ·{" "}
+          <b className="text-red-300">{publishRes.failed.length}</b> failed (of {publishRes.total}) — backend={publishRes.backend}
         </div>
       )}
+
+      {/* Pipeline flow */}
+      <section className="rounded-2xl border border-white/[0.06] bg-surface-1/40 p-5">
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-zinc-200">Persona Pipeline</h2>
+          <p className="text-xs text-zinc-500 mt-0.5">Specialists are published to OM AI Studio, then invoked from the UI.</p>
+        </div>
+        <MiniFlow nodes={PERSONA_FLOW_NODES} edges={PERSONA_FLOW_EDGES} height={200} />
+      </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Persona list */}
@@ -136,7 +161,7 @@ export default function PersonasPage() {
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 rows={3}
-                placeholder="e.g. Find all customer-related tables that have PII columns missing tags."
+                placeholder="e.g. Summarize governance status for sample_db_service.ecommerce_db.shopify.dim_customer in 3 bullets."
                 className="w-full px-3 py-2 rounded-lg bg-surface border border-white/[0.06] text-sm text-zinc-200 focus:border-brand-500/50 outline-none resize-none"
               />
               <button

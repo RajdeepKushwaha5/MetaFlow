@@ -1,12 +1,38 @@
 import { useState } from "react";
-import { Activity, ArrowRight, Loader2, Send, ShieldCheck, AlertTriangle, CheckCircle2, FileDown } from "lucide-react";
+import { Activity, ArrowRight, Database, FileDown, GitBranch, Loader2, Send, ShieldCheck, AlertTriangle, CheckCircle2, Tag } from "lucide-react";
 import {
   fetchSchemaDrift,
   writeHealthScore,
   fetchConnectorExport,
+  writeEntityDescription,
+  createGovernanceGlossaryTerm,
   type SchemaDriftTimeline,
   type HealthScoreResult,
+  type DescriptionWriteResult,
+  type GlossaryWriteResult,
 } from "../lib/api";
+import MiniFlow, { type FlowNodeSpec, type FlowEdgeSpec } from "./MiniFlow";
+
+const GOV_FLOW_NODES: FlowNodeSpec[] = [
+  { id: "catalog", tone: "data", label: "OpenMetadata", sublabel: "entity versions", icon: Database, col: 0 },
+  { id: "drift", tone: "process", label: "Drift Detector", sublabel: "diff adjacent versions", icon: GitBranch, col: 1 },
+  { id: "classify", tone: "process", label: "Classify", sublabel: "add / drop / rename", icon: Tag, col: 2 },
+  { id: "health", tone: "agent", label: "Health Scorer", sublabel: "pii · dq · coverage", icon: Activity, col: 3 },
+  { id: "writeback", tone: "output", label: "Writeback", sublabel: "metaflow_health_score", icon: CheckCircle2, col: 4 },
+];
+
+const GOV_FLOW_EDGES: FlowEdgeSpec[] = [
+  { from: "catalog", to: "drift" },
+  { from: "drift", to: "classify", label: "changes" },
+  { from: "classify", to: "health" },
+  { from: "health", to: "writeback", label: "patch" },
+];
+
+const DEFAULT_GOV_FQN = "sample_db_service.ecommerce_db.shopify.dim_customer";
+
+function toBrowserOmUrl(url: string) {
+  return url.replace("http://openmetadata-server:8585", "http://localhost:8585");
+}
 
 const KIND_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   table_created:      { bg: "bg-emerald-500/10", text: "text-emerald-300", label: "Table created" },
@@ -17,7 +43,7 @@ const KIND_STYLES: Record<string, { bg: string; text: string; label: string }> =
 };
 
 export default function GovernancePage() {
-  const [fqn, setFqn] = useState("demo.warehouse.crm.customers");
+  const [fqn, setFqn] = useState(DEFAULT_GOV_FQN);
   const [drift, setDrift] = useState<SchemaDriftTimeline | null>(null);
   const [driftLoading, setDriftLoading] = useState(false);
   const [driftErr, setDriftErr] = useState<string | null>(null);
@@ -28,6 +54,17 @@ export default function GovernancePage() {
   const [coverage, setCoverage] = useState(0.78);
   const [healthRes, setHealthRes] = useState<HealthScoreResult | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
+
+  const [description, setDescription] = useState(
+    "Customer dimension table governed by MetaFlow with lineage, contracts, health score, and quality signals synchronized to OpenMetadata."
+  );
+  const [descriptionRes, setDescriptionRes] = useState<DescriptionWriteResult | null>(null);
+  const [descriptionLoading, setDescriptionLoading] = useState(false);
+
+  const [glossaryName, setGlossaryName] = useState("MetaFlowGovernance");
+  const [termName, setTermName] = useState("CustomerHealthScore");
+  const [glossaryRes, setGlossaryRes] = useState<GlossaryWriteResult | null>(null);
+  const [glossaryLoading, setGlossaryLoading] = useState(false);
 
   const [exportLoading, setExportLoading] = useState(false);
 
@@ -56,6 +93,41 @@ export default function GovernancePage() {
       });
     } finally {
       setHealthLoading(false);
+    }
+  };
+
+  const submitDescription = async () => {
+    setDescriptionLoading(true);
+    try {
+      setDescriptionRes(await writeEntityDescription(fqn, description, "tables"));
+    } catch (e) {
+      setDescriptionRes({
+        ok: false,
+        entity_fqn: fqn,
+        entity_type: "tables",
+        reason: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setDescriptionLoading(false);
+    }
+  };
+
+  const submitGlossary = async () => {
+    setGlossaryLoading(true);
+    try {
+      setGlossaryRes(await createGovernanceGlossaryTerm(
+        glossaryName,
+        "Business terms authored and maintained by the MetaFlow Governance Agent.",
+        termName,
+        "Composite signal that summarizes contract readiness, data quality, PII posture, and documentation coverage for customer data."
+      ));
+    } catch (e) {
+      setGlossaryRes({
+        ok: false,
+        reason: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setGlossaryLoading(false);
     }
   };
 
@@ -88,6 +160,15 @@ export default function GovernancePage() {
           </p>
         </div>
       </header>
+
+      {/* Pipeline flow */}
+      <section className="rounded-2xl border border-white/[0.06] bg-surface-1/40 p-5">
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-zinc-200">Governance Pipeline</h2>
+          <p className="text-xs text-zinc-500 mt-0.5">From catalog version history to a patched entity property.</p>
+        </div>
+        <MiniFlow nodes={GOV_FLOW_NODES} edges={GOV_FLOW_EDGES} height={200} />
+      </section>
 
       {/* Entity selector */}
       <section className="rounded-2xl border border-white/[0.06] bg-surface-1/40 p-5">
@@ -211,7 +292,7 @@ export default function GovernancePage() {
               {healthRes.note && <p className="opacity-70 mt-1">{healthRes.note}</p>}
               {healthRes.error && <p className="opacity-70 mt-1">{healthRes.error}</p>}
               {healthRes.om_url && (
-                <a href={healthRes.om_url} target="_blank" rel="noreferrer"
+                <a href={toBrowserOmUrl(healthRes.om_url)} target="_blank" rel="noreferrer"
                    className="inline-flex items-center gap-1 text-brand-300 hover:underline mt-2">
                   Open in OM <ArrowRight size={12} />
                 </a>
@@ -219,6 +300,84 @@ export default function GovernancePage() {
             </div>
           </div>
         )}
+      </section>
+
+      {/* Description + glossary writebacks */}
+      <section className="rounded-2xl border border-white/[0.06] bg-surface-1/40 p-5">
+        <div className="mb-4">
+          <h2 className="text-sm font-semibold text-zinc-200">Metadata Curation Writebacks</h2>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Writes governed descriptions and business vocabulary directly into OpenMetadata.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+          <div className="rounded-xl border border-white/[0.06] bg-surface/50 p-4">
+            <label htmlFor="gov-description" className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">
+              Table Description
+            </label>
+            <textarea
+              id="gov-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              className="mt-2 w-full px-3 py-2 rounded-lg bg-surface border border-white/[0.06] text-sm text-zinc-200 focus:border-brand-500/50 outline-none resize-none"
+            />
+            <button
+              onClick={submitDescription}
+              disabled={descriptionLoading || !fqn || !description.trim()}
+              className="mt-3 px-4 py-2 rounded-lg bg-brand-500/15 hover:bg-brand-500/25 border border-brand-500/30 text-sm text-brand-300 font-medium flex items-center gap-2 disabled:opacity-40"
+            >
+              {descriptionLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              Update description in OM
+            </button>
+            {descriptionRes && (
+              <ResultBox
+                ok={descriptionRes.ok}
+                title={descriptionRes.ok ? `Description updated · v${descriptionRes.version ?? "?"}` : "Description update failed"}
+                detail={descriptionRes.ok ? descriptionRes.description : descriptionRes.reason}
+              />
+            )}
+          </div>
+
+          <div className="rounded-xl border border-white/[0.06] bg-surface/50 p-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Glossary</span>
+                <input
+                  value={glossaryName}
+                  onChange={(e) => setGlossaryName(e.target.value)}
+                  className="px-3 py-2 rounded-lg bg-surface border border-white/[0.06] text-sm text-zinc-200 focus:border-brand-500/50 outline-none"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Term</span>
+                <input
+                  value={termName}
+                  onChange={(e) => setTermName(e.target.value)}
+                  className="px-3 py-2 rounded-lg bg-surface border border-white/[0.06] text-sm text-zinc-200 focus:border-brand-500/50 outline-none"
+                />
+              </label>
+            </div>
+            <button
+              onClick={submitGlossary}
+              disabled={glossaryLoading || !glossaryName.trim() || !termName.trim()}
+              className="mt-3 px-4 py-2 rounded-lg bg-brand-500/15 hover:bg-brand-500/25 border border-brand-500/30 text-sm text-brand-300 font-medium flex items-center gap-2 disabled:opacity-40"
+            >
+              {glossaryLoading ? <Loader2 size={14} className="animate-spin" /> : <Tag size={14} />}
+              Create glossary term in OM
+            </button>
+            {glossaryRes && (
+              <ResultBox
+                ok={glossaryRes.ok}
+                title={glossaryRes.ok ? `Term ready · ${glossaryRes.term}` : "Glossary write failed"}
+                detail={glossaryRes.ok
+                  ? `Glossary ${glossaryRes.glossary_created ? "created" : "reused"}; term ${glossaryRes.term_created ? "created" : "reused"}.`
+                  : glossaryRes.reason}
+              />
+            )}
+          </div>
+        </div>
       </section>
 
       {/* Connector export */}
@@ -257,5 +416,21 @@ function NumField({ label, value, onChange, step }: { label: string; value: numb
         className="px-3 py-2 rounded-lg bg-surface border border-white/[0.06] text-sm text-zinc-200 focus:border-brand-500/50 outline-none"
       />
     </label>
+  );
+}
+
+function ResultBox({ ok, title, detail }: { ok: boolean; title: string; detail?: string }) {
+  return (
+    <div className={`mt-3 rounded-lg p-3 text-xs flex items-start gap-2 border ${
+      ok
+        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-200"
+        : "bg-red-500/10 border-red-500/30 text-red-200"
+    }`}>
+      {ok ? <CheckCircle2 size={14} className="mt-0.5" /> : <AlertTriangle size={14} className="mt-0.5" />}
+      <div>
+        <p className="font-semibold break-all">{title}</p>
+        {detail && <p className="opacity-70 mt-1 break-words">{detail}</p>}
+      </div>
+    </div>
   );
 }
