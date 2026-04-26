@@ -348,10 +348,17 @@ def _table_fqn_from_test_case(test_case: dict) -> str:
 
 
 def _event_key(event: dict) -> str:
-    return "|".join(
+    base = "|".join(
         str(event.get(k) or "")
         for k in ("raw_type", "entity_fqn", "title", "severity")
     )
+    # Info-level events use a 5-minute time bucket so they reappear with fresh
+    # timestamps each bucket — makes the steward digest feel live.
+    if event.get("severity") == "info":
+        import time
+        bucket = int(time.time()) // 300  # new bucket every 5 minutes
+        return f"{base}|{bucket}"
+    return base
 
 
 def _classify(raw: dict) -> dict | None:

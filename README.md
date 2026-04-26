@@ -123,7 +123,7 @@ A LangGraph supervisor routes user requests to the right specialist. The streami
 
 ### 6. Playbooks
 
-13 pre-built one-click production workflows:
+15 pre-built one-click production workflows:
 
 | Playbook | What it does |
 |----------|-------------|
@@ -133,7 +133,7 @@ A LangGraph supervisor routes user requests to the right specialist. The streami
 | PII Sweep | Find untagged sensitive columns catalog-wide |
 | Metadata Health | Ownership, descriptions, quality coverage scan |
 | Incident Response | Cross-platform alert + ticket creation |
-| + 7 more | Lineage audit, schema drift review, persona publish, etc. |
+| + 9 more | Lineage audit, schema drift review, persona publish, and more. |
 
 ### 7. Webhook Auto-Triage
 

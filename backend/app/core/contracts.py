@@ -749,15 +749,22 @@ def create_test_cases_for_contract(entity_fqn: str, contract: dict) -> dict:
 def get_contract_status(entity_fqn: str) -> dict:
     """Return the current Data Contract status for an entity."""
     entity_fqn = normalize_entity_fqn(entity_fqn)
+    def _ms_to_iso(ms: int | None) -> str | None:
+        if not ms:
+            return None
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).isoformat()
+
     if not _is_om_alive():
         s = _seed(entity_fqn)
         return {
             "demo": True,
+            "found": True,
             "entity_fqn": entity_fqn,
             "status": ["Draft", "Active", "Violated"][s % 3],
             "passing_tests": (s % 11) + 1,
             "failing_tests": s % 3,
-            "last_evaluated_at": int(time.time()),
+            "last_evaluated": _ms_to_iso(int(time.time()) * 1000),
         }
 
     # Look up by entity FQN — OM exposes /api/v1/dataContracts?entity=table:fqn
@@ -774,27 +781,30 @@ def get_contract_status(entity_fqn: str) -> dict:
             for row in all_contracts.get("data", []):
                 if (row.get("entity") or {}).get("id") == table_id:
                     return {
+                        "found": True,
                         "entity_fqn": entity_fqn,
                         "status": row.get("status", "Draft"),
                         "name": row.get("name"),
                         "passing_tests": row.get("passingTests"),
                         "failing_tests": row.get("failingTests"),
-                        "last_evaluated_at": row.get("updatedAt"),
+                        "last_evaluated": _ms_to_iso(row.get("updatedAt")),
                         "result": row,
                     }
         return {
+            "found": False,
             "entity_fqn": entity_fqn,
             "status": "Not Found",
             "message": "No Data Contract is currently attached to this entity.",
         }
     contract = listing["data"][0]
     return {
+        "found": True,
         "entity_fqn": entity_fqn,
         "status": contract.get("status", "Unknown"),
         "name": contract.get("name"),
         "passing_tests": contract.get("passingTests"),
         "failing_tests": contract.get("failingTests"),
-        "last_evaluated_at": contract.get("updatedAt"),
+        "last_evaluated": _ms_to_iso(contract.get("updatedAt")),
         "result": contract,
     }
 
@@ -879,16 +889,46 @@ def propose_contract_fix(entity_fqn: str, violation_summary: str) -> dict:
 
     tpl = _HEAL_TEMPLATES[kind]
 
-    # crude column extraction: grab the first dotted segment that looks like a column
+    # Column extraction — try "X column" pattern first (e.g. "customer email column")
+    import re as _re
+    _STOP_WORDS = {
+        "the", "and", "for", "with", "this", "that", "rows", "into", "data", "test",
+        "null", "more", "than", "less", "over", "table", "check", "value", "field",
+        "failed", "found", "rate", "count", "format", "regex", "match", "range",
+        "column", "columns", "row", "sampled", "malformed", "detected", "validation",
+        "violated", "constraint", "unexpected",
+    }
     column = "<column>"
-    for token in violation_summary.replace(",", " ").split():
-        clean = token.strip("`\"'.")
-        if clean and clean != table_short and "." not in clean and "_" in clean and clean.islower():
-            column = clean
-            break
+    # Pattern 1: word immediately before "column" (e.g. "email column")
+    m = _re.search(r'(\b\w+\b)\s+column', violation_summary, _re.IGNORECASE)
+    if m:
+        candidate = m.group(1).lower()
+        if candidate not in _STOP_WORDS and candidate != table_short:
+            column = candidate
+    # Pattern 2: underscore-containing token as fallback
+    if column == "<column>":
+        for token in violation_summary.replace(",", " ").split():
+            clean = token.strip("`\"'.")
+            if clean and clean != table_short and "." not in clean and "_" in clean and clean.islower():
+                column = clean
+                break
+
+    # For regex violations, substitute a real pattern based on the column name
+    _REGEX_PATTERNS = {
+        "email": r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$",
+        "phone": r"^\+?[1-9]\d{1,14}$",
+        "zip": r"^\d{5}(-\d{4})?$",
+        "postal": r"^\d{5}(-\d{4})?$",
+        "url": r"^https?://[^\s]+$",
+        "date": r"^\d{4}-\d{2}-\d{2}$",
+    }
+    regex_pattern = next(
+        (pat for key, pat in _REGEX_PATTERNS.items() if key in column.lower()),
+        "<pattern>",
+    )
 
     title = tpl["title"].format(column=column, table=table_short)
-    diff = tpl["diff_hint"].format(column=column, table=table_short)
+    diff = tpl["diff_hint"].format(column=column, table=table_short).replace("<pattern>", regex_pattern)
     paths = [p.format(column=column, table=table_short) for p in tpl["patch_paths"]]
 
     body = (
