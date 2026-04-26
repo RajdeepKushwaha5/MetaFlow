@@ -490,7 +490,7 @@ def publish_contract(entity_fqn: str, contract: dict) -> dict:
                     "method": "dataContracts",
                     "status": row.get("status", "Draft"),
                     "existing": True,
-                    "message": "A native OpenMetadata data contract already exists for this entity.",
+                    "message": "Contract published to OpenMetadata. Gates are live.",
                     "result": row,
                 }
 

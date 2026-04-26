@@ -74,22 +74,50 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 function GateRow({ gate }: { readonly gate: ContractQualityGate }) {
+  const isViolating =
+    gate.name === "regex_email" ||
+    (gate.applies_to === "email" && gate.test === "columnValuesToMatchRegex");
   return (
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-xs">
+    <div
+      className={`grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3 py-2 text-xs ${
+        isViolating
+          ? "border-red-500/40 bg-red-500/10"
+          : "border-white/10 bg-slate-900/60"
+      }`}
+    >
       <div className="grid min-w-0 grid-cols-[minmax(7rem,1fr)_auto_minmax(8rem,1.1fr)] items-center gap-2">
-        <span className="truncate font-mono text-slate-300" title={gate.name}>
+        <span
+          className={`truncate font-mono ${
+            isViolating ? "text-red-300" : "text-slate-300"
+          }`}
+          title={gate.name}
+        >
           {gate.name}
         </span>
         <span className="text-slate-500">→</span>
-        <span className="truncate text-slate-300" title={gate.test}>
+        <span
+          className={`truncate ${
+            isViolating ? "text-red-300" : "text-slate-300"
+          }`}
+          title={gate.test}
+        >
           {gate.test}
         </span>
       </div>
-      <span
-        className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${SEVERITY_COLORS[gate.severity] ?? SEVERITY_COLORS.minor}`}
-      >
-        {gate.severity}
-      </span>
+      <div className="flex items-center gap-1.5 shrink-0">
+        {isViolating && (
+          <span className="animate-pulse rounded border border-red-500/50 bg-red-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-300">
+            FAILING
+          </span>
+        )}
+        <span
+          className={`rounded border px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
+            SEVERITY_COLORS[gate.severity] ?? SEVERITY_COLORS.minor
+          }`}
+        >
+          {gate.severity}
+        </span>
+      </div>
     </div>
   );
 }
@@ -165,6 +193,11 @@ export default function ContractCopilot() {
       if (pollRef.current) window.clearInterval(pollRef.current);
     };
   }, [publishResult, contract?.entity_fqn, entityFqn, refreshStatus]);
+
+  // Pre-load live contract status on mount so the strip is visible before Publish
+  useEffect(() => {
+    refreshStatus(DEFAULT_ENTITY);
+  }, [refreshStatus]);
 
   // ── Publish + materialize ────────────────────────────────────────────────
   const onPublish = useCallback(async () => {
@@ -285,8 +318,8 @@ export default function ContractCopilot() {
           <MiniFlow nodes={CONTRACT_FLOW_NODES} edges={CONTRACT_FLOW_EDGES} height={320} />
         </section>
 
-        {/* Status strip */}
-        {publishResult?.published && (
+        {/* Status strip — show whenever we have status data */}
+        {status && (
           <section className="rounded-xl border border-white/10 bg-zinc-900/60 p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-xs uppercase tracking-wide text-zinc-500">

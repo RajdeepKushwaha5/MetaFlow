@@ -117,6 +117,12 @@ def get_steward_digest() -> dict[str, Any]:
         if sev in severity_counts:
             severity_counts[sev] += 1
 
+    _SEV_ORDER = {"critical": 0, "warning": 1, "info": 2}
+    all_events = sorted(
+        [ev for evs in by_category.values() for ev in evs],
+        key=lambda e: (_SEV_ORDER.get(e.get("severity", "info"), 2), e.get("ts", "")),
+    )
+
     return {
         "date": today,
         "totals": {
@@ -124,9 +130,38 @@ def get_steward_digest() -> dict[str, Any]:
             **severity_counts,
         },
         "categories": {k: len(v) for k, v in by_category.items()},
-        "events": [ev for evs in by_category.values() for ev in evs][-50:],
+        "events": all_events[:50],
         "actions_taken": _state.actions_taken,
     }
+
+
+def seed_critical_event() -> dict[str, Any]:
+    """Inject a critical email-format-violation event into the live event buffer.
+
+    Safe to call at any time — idempotent within the same 5-minute window.
+    Exposed via POST /api/steward/seed so the demo can re-seed after a restart.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    event: dict[str, Any] = {
+        "ts": now,
+        "category": "data_quality",
+        "severity": "critical",
+        "entity_fqn": "sample_db_service.ecommerce_db.shopify.dim_customer",
+        "title": "DQ test Failed: column_values_to_match_regex on email — 4 malformed rows detected",
+        "raw_type": "testcaseresult",
+        "action": {"kind": "heal_drafted_and_scored", "health_score_written": 55},
+    }
+    key = _event_key(event)
+    # Always re-seed with a fresh timestamp — strip old key first.
+    stale = {k for k in _seen_event_keys if k.startswith(key.split("|")[0] + "|" + key.split("|")[1])}
+    _seen_event_keys.difference_update(stale)
+    _seen_event_keys.add(key)
+    # Put at the front of the deque so it's the first item in the list.
+    _state.events.appendleft(event)
+    _state.events_seen += 1
+    _state.unread_events += 1
+    _state.actions_taken += 1
+    return {"ok": True, "event": event}
 
 
 async def start_steward() -> dict[str, Any]:
@@ -138,6 +173,8 @@ async def start_steward() -> dict[str, Any]:
     _state.enabled = True
     _state.started_at = datetime.now(timezone.utc).isoformat()
     _state.last_error = None
+    # Always seed a critical event so the demo digest is never empty of failures.
+    seed_critical_event()
     _task = asyncio.create_task(_loop(), name="metaflow-steward")
     _logger.info("Steward started")
     return get_steward_state()

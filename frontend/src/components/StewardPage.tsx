@@ -580,12 +580,20 @@ function DigestList({ title, items, empty }: Readonly<{
             return (
               <li
                 key={`${ts}-${i}`}
-                className="flex items-start gap-2 text-[11px] font-mono leading-snug px-2 py-1.5 rounded-md hover:bg-white/[0.02] transition"
+                className={`flex items-start gap-2 text-[11px] font-mono leading-snug px-2 py-1.5 rounded-md hover:bg-white/[0.02] transition ${
+                  it.severity === "critical" ? "bg-red-500/5 border border-red-500/20" : ""
+                }`}
               >
                 <span className="text-zinc-600 shrink-0">
                   {ts ? new Date(ts).toLocaleTimeString() : "—"}
                 </span>
-                <span className="text-zinc-300 truncate">{summary}</span>
+                <span className={`truncate ${
+                  it.severity === "critical"
+                    ? "text-red-400 font-semibold"
+                    : it.severity === "warning"
+                    ? "text-amber-400"
+                    : "text-zinc-300"
+                }`}>{summary}</span>
               </li>
             );
           })}

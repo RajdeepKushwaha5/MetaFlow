@@ -48,8 +48,14 @@ async function readSSEStream(
     buffer = lines.pop() ?? "";
     for (const line of lines) {
       const trimmed = line.trim();
-      if (!trimmed.startsWith("data:")) continue;
-      const json = trimmed.slice(5).trim();
+      if (!trimmed) continue;
+      // Support both proper SSE format ("data: {...}") and raw NDJSON ("{...}")
+      let json: string;
+      if (trimmed.startsWith("data:")) {
+        json = trimmed.slice(5).trim();
+      } else {
+        json = trimmed;
+      }
       if (!json || json === "[DONE]") continue;
       try {
         onEvent?.(JSON.parse(json));

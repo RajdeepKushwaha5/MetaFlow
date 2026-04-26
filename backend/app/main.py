@@ -52,6 +52,7 @@ from app.core.governance import (
     write_health_score,
 )
 from app.core.steward import (
+    seed_critical_event,
     clear_unread_events,
     get_steward_digest,
     get_steward_state,
@@ -267,11 +268,14 @@ async def chat(req: ChatRequest):
             return
         try:
             stream = await _stream_with_retry()
+            # Run the synchronous LangGraph stream in a thread so it doesn't
+            # block the uvicorn event loop (which would freeze all other requests).
+            all_chunks = await asyncio.to_thread(list, stream)
             final_content = ""
             current_agent = None
             agent_start = None
 
-            for chunk in stream:
+            for chunk in all_chunks:
                 # LangGraph supervisor yields {node_name: {"messages": [...]}}
                 for node_name, node_output in chunk.items():
                     messages = node_output.get("messages", [])
@@ -837,6 +841,15 @@ async def api_steward_stop():
 async def api_steward_clear_unread():
     """Acknowledge all unread events — called when the user opens the Steward page."""
     return clear_unread_events()
+
+
+@app.post("/api/steward/seed")
+async def api_steward_seed():
+    """Re-inject the critical email-violation event into the live event buffer.
+
+    Call this after a backend restart if the Steward digest shows no critical events.
+    """
+    return seed_critical_event()
 
 
 # ---------------------------------------------------------------------------
