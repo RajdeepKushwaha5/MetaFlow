@@ -18,6 +18,7 @@
 ---
 
 > **MetaFlow turns OpenMetadata into the control plane for AI-driven data operations.** It does not just read your catalog — it reasons over it, writes governed metadata back into it, and coordinates 12 specialist agents across 7 platforms to resolve incidents from detection to handoff without human intervention.
+<img width="1882" height="962" alt="image" src="https://github.com/user-attachments/assets/da36ec7b-9e6a-4246-833c-0a3c9ce841f9" />
 
 ---
 
@@ -91,6 +92,8 @@ Quality gate examples generated for `dim_customer`:
 - `tableRowCountToBeBetween` (daily volume SLA)
 
 Materialize is idempotent: if the test case already exists in OpenMetadata, MetaFlow skips it.
+<img width="1913" height="976" alt="image" src="https://github.com/user-attachments/assets/4c0963de-46f4-4430-bdd2-50edd0953329" />
+
 
 ### 3. Self-Healing Remediation
 
