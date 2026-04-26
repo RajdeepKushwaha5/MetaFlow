@@ -1,0 +1,666 @@
+MetaFlow Final Hackathon Demo Script
+====================================
+
+Target length: 5 to 6 minutes
+
+Demo URLs
+---------
+- MetaFlow UI: http://localhost:3000
+- OpenMetadata UI: http://localhost:8585/my-data
+- OpenMetadata table direct link:
+  http://localhost:8585/table/sample_db_service.ecommerce_db.shopify.dim_customer
+- OpenMetadata login: judge@open-metadata.org / Admin@123
+- Backend docs: http://localhost:8000/docs
+
+Use this exact FQN throughout:
+sample_db_service.ecommerce_db.shopify.dim_customer
+
+Main judging message:
+MetaFlow does not replace OpenMetadata. MetaFlow turns OpenMetadata into the
+AI control plane for self-healing data operations.
+
+
+0. Pre-Demo Setup
+=================
+
+Run these before recording.
+
+From D:\omdhack\metaflow:
+
+docker compose up -d --build
+docker compose ps
+
+Then verify:
+
+http://localhost:3000
+http://localhost:8585
+http://localhost:8000/health
+http://localhost:8000/api/system/info
+http://localhost:8000/api/system/judge-check?entity_fqn=sample_db_service.ecommerce_db.shopify.dim_customer
+
+Expected readiness:
+- MetaFlow UI returns 200.
+- OpenMetadata returns 200.
+- Backend health returns status ok.
+- system/info shows:
+  demo_mode=false
+  judge_mode=true
+  dry_run=false
+  is_sandbox=false
+  ai_sdk_host=http://openmetadata-server:8585
+  has_om_token=true
+- judge-check shows:
+  passed=9
+  total=9
+  ok=true
+
+Open these tabs before recording:
+- Tab 1: http://localhost:3000
+- Tab 2: http://localhost:8585/my-data
+- Tab 3: http://localhost:8585/table/sample_db_service.ecommerce_db.shopify.dim_customer
+- Tab 4 optional: http://localhost:8000/docs
+- Optional terminal with docker compose ps and judge-check ready.
+
+If OpenMetadata asks for login:
+judge@open-metadata.org
+Admin@123
+
+
+OpenMetadata Links To Show During Recording
+===========================================
+
+Use these exact links when you need to prove that MetaFlow is writing to the
+real OpenMetadata UI.
+
+1. OpenMetadata My Data:
+   http://localhost:8585/my-data
+
+   Show this early in the demo to prove OpenMetadata is running. Use search to
+   find the sample table if the direct table link is not already open.
+
+2. Sample table direct link:
+   http://localhost:8585/table/sample_db_service.ecommerce_db.shopify.dim_customer
+
+   Show this table before MetaFlow actions, then return to it after governance
+   write-back. This is the most important OpenMetadata page in the demo.
+
+3. What to show on the table page:
+   - table name: dim_customer
+   - FQN: sample_db_service.ecommerce_db.shopify.dim_customer
+   - columns:
+     customer_id
+     email
+     signup_date
+     loyalty_tier
+     email_consent_status
+   - Data Quality or Tests tab if visible
+   - Data Contract section if visible
+   - Custom Properties after governance write-back
+   - metaflow_health_score custom property
+   - description/tags/glossary terms if you trigger those actions
+
+4. When to open these links:
+   - Before Contract Copilot: open the table to prove the source asset exists.
+   - After Contract Publish: show the same table and test/contract evidence if
+     visible.
+   - After Governance Write-Back: refresh the table and show
+     metaflow_health_score under Custom Properties.
+
+
+1. Opening Hook: The Real Problem
+=================================
+
+Time: 0:00 to 0:35
+Screen: MetaFlow UI, preferably the dashboard/home/About view.
+
+What to say:
+
+"Every data team already has alerts.
+
+A pipeline breaks, a data quality test fails, a dashboard becomes wrong, and
+the system creates another notification.
+
+But the alert usually does not know the contract. It does not know lineage. It
+does not know the owner. It does not know whether the column is sensitive. And
+it cannot safely write the decision back to the metadata system.
+
+That is the gap MetaFlow is built for.
+
+OpenMetadata already knows the timeline of the data: assets, owners, lineage,
+quality, changes, and governance. MetaFlow adds the AI action layer on top of
+that timeline."
+
+Show:
+- MetaFlow is loaded.
+- Sidebar/product surface is visible.
+
+Judge takeaway:
+- The problem is not "another chatbot."
+- The problem is turning metadata context into governed next actions.
+
+
+2. Prove This Is A Real Production-Style Stack
+==============================================
+
+Time: 0:35 to 1:05
+Screen: MetaFlow Settings, then optional terminal or backend docs.
+
+What to do:
+1. Go to Settings.
+2. Show provider is Gemini.
+3. Show model is gemini-2.5-flash.
+4. Show the key is detected.
+5. Optional: open system info or terminal output.
+
+What to say:
+
+"First, I want to prove this is not running on fake demo data.
+
+MetaFlow is connected to a real local OpenMetadata Docker stack. The backend is
+online, Gemini is configured, and the production flags show judge_mode true,
+dry_run false, and is_sandbox false.
+
+That means the writes I show are real writes to this OpenMetadata instance."
+
+Expected outcome:
+- Backend is reachable.
+- LLM is online.
+- No offline fallback.
+- No demo mode.
+
+
+3. OpenMetadata Baseline: Show The Real Table First
+===================================================
+
+Time: 1:05 to 1:35
+Screen: OpenMetadata UI at http://localhost:8585/my-data
+
+What to do in OpenMetadata:
+1. Open http://localhost:8585/my-data.
+2. Log in if needed:
+   judge@open-metadata.org / Admin@123
+3. Use search to find:
+   sample_db_service.ecommerce_db.shopify.dim_customer
+4. Open the table.
+5. Show the table page, schema/columns, and ownership if visible.
+
+What to say:
+
+"Before I show MetaFlow doing anything, here is the source of truth:
+OpenMetadata itself.
+
+This is the real table we will use for the whole demo:
+sample_db_service.ecommerce_db.shopify.dim_customer.
+
+The important point is that MetaFlow will not invent a separate object. It will
+read this table, publish a native OpenMetadata contract, create or reuse native
+OpenMetadata test cases, and write governance signals back onto this table."
+
+Show these OpenMetadata UI elements:
+- Table name: dim_customer.
+- Fully qualified name if visible.
+- Columns such as customer_id, email, signup_date, loyalty_tier,
+  email_consent_status.
+- Owner/admin or table metadata if visible.
+
+Judge takeaway:
+- The OpenMetadata UI is the system of record.
+- The demo entity is real and visible before MetaFlow acts.
+
+
+4. Flagship Flow: Contract Copilot
+==================================
+
+Time: 1:35 to 2:35
+Screen: MetaFlow Contract Copilot.
+
+What to do:
+1. Go back to MetaFlow.
+2. Open Contract Copilot.
+3. Enter:
+   sample_db_service.ecommerce_db.shopify.dim_customer
+4. Click Generate Contract.
+5. Show the generated YAML.
+6. Click Publish.
+7. Click Materialize tests.
+
+What to say:
+
+"Now I turn the OpenMetadata table into a governed data contract.
+
+When I click Generate Contract, MetaFlow reads the live OpenMetadata asset and
+builds a contract from the schema, profiler-style expectations, and lineage
+context.
+
+Notice that the contract is tied to the exact OpenMetadata FQN. It creates
+expectations for customer_id, email, signup_date, loyalty_tier, and
+email_consent_status.
+
+It also creates operational gates: not-null, uniqueness, email format, enum
+validation, and daily volume.
+
+Now I publish it. This creates or reuses a native OpenMetadata data contract.
+
+Now I materialize tests. Each quality gate becomes an OpenMetadata test case.
+If the tests already exist, MetaFlow skips them instead of duplicating them.
+For production, that idempotency matters."
+
+Expected outcome:
+- Generated contract appears.
+- YAML includes:
+  entity.fqn: sample_db_service.ecommerce_db.shopify.dim_customer
+- Stats show:
+  upstream sources: 2
+  quality gates: 6
+  schema expectations: 5
+- Publish shows Published.
+- Live status shows Draft.
+- Materialize tests shows failed 0.
+- skipped 6 is acceptable if tests already exist.
+
+What to emphasize:
+- This is native OpenMetadata contract/test work, not just a local YAML blob.
+- Existing objects are reused safely.
+
+
+5. OpenMetadata Proof: Show The Native Contract/Test Evidence
+=============================================================
+
+Time: 2:35 to 3:05
+Screen: OpenMetadata UI at http://localhost:8585/my-data
+
+What to do in OpenMetadata:
+1. Switch to OpenMetadata.
+2. Keep or search for:
+   sample_db_service.ecommerce_db.shopify.dim_customer
+3. Open the dim_customer table.
+4. Show contract-related status if visible.
+5. Show Tests/Data Quality tab or table quality evidence if visible.
+6. If the contract tab is not obvious, use the MetaFlow contract status panel
+   and mention the OpenMetadata API href returned by the backend.
+
+What to say:
+
+"Now I switch back to OpenMetadata to prove this is not only a MetaFlow screen.
+
+The same table exists in the native OpenMetadata UI. The contract is a native
+OpenMetadata data contract, and the quality gates are OpenMetadata test cases.
+
+That is the core integration: MetaFlow produces an AI-assisted operation, but
+OpenMetadata remains the governed metadata system of record."
+
+Show if available:
+- Table page for dim_customer.
+- Data Quality or Tests section.
+- Any contract/test/status panel visible in OpenMetadata.
+- If UI navigation is slow, keep the MetaFlow status visible:
+  status Draft and published=true.
+
+Backup line if UI does not expose the contract clearly:
+"The OpenMetadata UI can vary by layout, but the backend status endpoint is
+returning the native OpenMetadata dataContract object and href for this table.
+So I will keep the focus on the table and the write-back proof."
+
+
+6. Self-Healing Remediation Draft
+=================================
+
+Time: 3:05 to 3:35
+Screen: MetaFlow Contract Copilot.
+
+What to do:
+1. In the violation box enter:
+   Null rate on customer_id exceeded threshold (0.6% > 0.1%)
+2. Click Draft remediation PR.
+
+What to say:
+
+"A contract is only useful if it helps during failure.
+
+Here I simulate a real violation: the null rate on customer_id crossed the
+threshold.
+
+MetaFlow classifies the incident, drafts the likely SQL or dbt fix, identifies
+files that probably need to change, and prepares a PR-style engineering
+handoff.
+
+This button does not blindly push code. It creates a reviewable remediation
+draft. That is the right production posture: AI proposes, humans review, and
+the metadata trail stays intact."
+
+Expected outcome:
+- Classification appears, usually null.
+- SQL/dbt remediation diff appears.
+- PR draft appears.
+- PR title starts with:
+  [Contract Heal]
+- Labels include:
+  contract-violation
+  metaflow
+
+Important note:
+- This screen drafts a PR description. It does not create a real GitHub PR.
+- GitHub issue dispatch is tested separately through Chat or Auto Remediation
+  only if you intentionally want that side effect.
+
+
+7. Governance Write-Back: Prove MetaFlow Mutates OpenMetadata
+=============================================================
+
+Time: 3:35 to 4:25
+Screen: MetaFlow Governance, then OpenMetadata table.
+
+What to do in MetaFlow:
+1. Go to Governance.
+2. Use:
+   sample_db_service.ecommerce_db.shopify.dim_customer
+3. Trigger health score write-back.
+4. If available, trigger governed description update.
+5. If available, trigger glossary/term creation.
+
+What to say while in MetaFlow:
+
+"Now I will show the most important proof for judges: write-back.
+
+MetaFlow is not just reading from OpenMetadata and showing a pretty answer. The
+Governance Agent calculates a health score from ownership, descriptions,
+contract coverage, quality evidence, and PII risk. Then it writes that score
+back to the OpenMetadata table as a custom property."
+
+What to do in OpenMetadata:
+1. Switch to http://localhost:8585/my-data.
+2. Search/open:
+   sample_db_service.ecommerce_db.shopify.dim_customer
+3. On the table page, show:
+   - Description if updated.
+   - Custom Properties.
+   - metaflow_health_score.
+   - Tags/glossary terms if created.
+
+What to say while in OpenMetadata:
+
+"Here is the same table inside OpenMetadata. This is the native OpenMetadata UI,
+not a MetaFlow cache.
+
+The custom property metaflow_health_score is visible here. If I updated the
+description or glossary terms, those are visible here too.
+
+This is the control-plane idea: MetaFlow uses AI to decide what should happen,
+but the governed state lives in OpenMetadata."
+
+Expected outcome:
+- MetaFlow says health score write-back succeeded.
+- OpenMetadata table shows Custom Properties.
+- metaflow_health_score is visible.
+- Description/tag/glossary changes are visible if triggered.
+
+If the table page is already open:
+- Refresh the OpenMetadata table page after the write-back.
+
+
+8. Continuous Steward: Autonomous Monitoring
+============================================
+
+Time: 4:25 to 4:55
+Screen: MetaFlow Operations/Steward.
+
+What to do:
+1. Go to Operations or Steward.
+2. Show the steward state.
+3. Show polling/events seen.
+4. Confirm there is no active fatal error.
+
+What to say:
+
+"So far I have shown explicit actions. Now this becomes autonomous.
+
+The Continuous Steward polls OpenMetadata in the background. It watches metadata
+events, schema changes, quality signals, and governance gaps.
+
+That matters because real data systems do not fail only when an operator is on
+this screen. MetaFlow keeps watching OpenMetadata and prepares next actions
+continuously."
+
+Expected outcome:
+- Steward enabled.
+- Poll count is present.
+- Events seen is present.
+- last_error is empty/null or non-fatal.
+
+Optional backend proof:
+http://localhost:8000/api/steward/state
+http://localhost:8000/api/steward/digest
+
+
+9. Playbooks: Repeatable Production Workflows
+=============================================
+
+Time: 4:55 to 5:25
+Screen: MetaFlow Playbooks.
+
+What to do:
+1. Go to Playbooks.
+2. Show categories:
+   Core Metadata Operations
+   Cross-Platform Workflows
+   AI-Powered Analytics
+3. Run one safe playbook:
+   Contract Copilot or Data Quality Fire Drill.
+4. Use the prefilled FQN/test case.
+
+Inputs:
+- Contract Copilot:
+  sample_db_service.ecommerce_db.shopify.dim_customer
+- Data Quality Fire Drill:
+  sample_db_service.ecommerce_db.shopify.dim_customer.email.regex_email
+
+What to say:
+
+"MetaFlow also packages the agents into repeatable playbooks.
+
+This is important for production. Teams do not want one impressive prompt. They
+want workflows that can be repeated during an incident: impact analysis, PII
+sweep, metadata health checks, contract publishing, data quality fire drills,
+and cross-platform incident response.
+
+The playbook streams each step, so the operator can see what the system is
+doing instead of receiving an unexplained answer."
+
+Expected outcome:
+- Playbook cards load.
+- Selected input is real FQN or real test case.
+- Steps stream.
+- Run completes without error.
+
+
+10. Personas And Chat: Multi-Agent Layer
+========================================
+
+Time: 5:25 to 5:55
+Screen: Personas, then Chat.
+
+Important:
+Run the Chat prompt once only to protect Gemini free-tier quota. API key
+rotation is configured, but do not waste calls during recording.
+
+What to do:
+1. Go to Personas.
+2. Click Publish all.
+3. Confirm total and failed.
+4. Go to Chat.
+5. Send:
+   Find tables with failing DQ tests and summarize the next action in 3 bullets.
+
+What to say:
+
+"Finally, here is the multi-agent layer.
+
+MetaFlow can publish its specialists as OpenMetadata Personas, so the agents
+themselves become governed catalog objects.
+
+Then in Chat, a user can ask a natural-language operations question. The
+supervisor routes it to the right specialist agents and streams the reasoning
+timeline.
+
+The value is not just the final answer. The value is that the answer is grounded
+in OpenMetadata tools, metadata, and write-back paths."
+
+Expected outcome:
+- Personas publish succeeds.
+- Total is populated.
+- failed is 0 or empty.
+- Chat shows reasoning/tool activity.
+- Final answer appears.
+
+
+11. Closing: Why MetaFlow Should Win
+====================================
+
+Time: 5:55 to 6:15
+Screen: Split mentally between MetaFlow and OpenMetadata; end on the
+OpenMetadata table with write-back visible if possible.
+
+What to say:
+
+"MetaFlow is a multi-agent control plane for OpenMetadata.
+
+It generates native data contracts, materializes quality gates, drafts
+remediation actions, writes governance signals back into OpenMetadata, monitors
+the catalog continuously, and coordinates specialist agents across operational
+tools.
+
+The key is that OpenMetadata remains the system of record.
+
+MetaFlow turns OpenMetadata from a catalog you inspect into a control plane that
+helps data teams understand, govern, and repair issues.
+
+That is self-healing data operations, built on OpenMetadata.
+
+Thank you."
+
+Final visual:
+- Best: OpenMetadata dim_customer table with metaflow_health_score visible.
+- Good fallback: MetaFlow Contract Copilot with Published, failed 0, and PR
+  draft visible.
+
+
+OpenMetadata UI Showcase Checklist
+==================================
+
+During the demo, make sure judges see these inside http://localhost:8585/my-data:
+
+[ ] Login works with judge@open-metadata.org / Admin@123.
+[ ] Search opens sample_db_service.ecommerce_db.shopify.dim_customer.
+[ ] Table page shows the real dim_customer asset.
+[ ] Columns are visible:
+    customer_id
+    email
+    signup_date
+    loyalty_tier
+    email_consent_status
+[ ] Data Quality / Tests area is shown if accessible.
+[ ] Contract/status evidence is shown if accessible.
+[ ] Custom Properties are shown after governance write-back.
+[ ] metaflow_health_score is visible.
+[ ] Description/tags/glossary terms are shown if you trigger those actions.
+
+
+Judge-Proof API Links
+=====================
+
+Use these only if the UI is slow or a judge asks for proof.
+
+Health:
+http://localhost:8000/health
+
+System info:
+http://localhost:8000/api/system/info
+
+Judge check:
+http://localhost:8000/api/system/judge-check?entity_fqn=sample_db_service.ecommerce_db.shopify.dim_customer
+
+Contract generation:
+http://localhost:8000/api/reliability/contract?entity_fqn=sample_db_service.ecommerce_db.shopify.dim_customer
+
+Contract status:
+http://localhost:8000/api/reliability/contract/status?entity_fqn=sample_db_service.ecommerce_db.shopify.dim_customer
+
+Schema drift:
+http://localhost:8000/api/governance/schema-drift?entity_fqn=sample_db_service.ecommerce_db.shopify.dim_customer
+
+Metrics scan:
+http://localhost:8000/api/metrics/scan
+
+Steward state:
+http://localhost:8000/api/steward/state
+
+Steward digest:
+http://localhost:8000/api/steward/digest
+
+
+Exact Inputs
+============
+
+Main FQN:
+sample_db_service.ecommerce_db.shopify.dim_customer
+
+Violation:
+Null rate on customer_id exceeded threshold (0.6% > 0.1%)
+
+Chat prompt:
+Find tables with failing DQ tests and summarize the next action in 3 bullets.
+
+Playbook test case:
+sample_db_service.ecommerce_db.shopify.dim_customer.email.regex_email
+
+GitHub optional prompt:
+Create a GitHub issue for dim_customer: customer_id null-rate breach needs contract remediation.
+
+
+Backup Lines
+============
+
+If publish says the contract already exists:
+"That is still a pass. MetaFlow found the native OpenMetadata contract and
+reused it safely instead of creating duplicates."
+
+If test materialization says skipped:
+"Skipped is good here. It means the OpenMetadata test cases already exist.
+The important production signal is failed 0."
+
+If OpenMetadata UI navigation is slow:
+"I will keep the table open here and use the backend status endpoint as the
+native OpenMetadata API proof. The UI and API are both pointing at the same
+local OpenMetadata instance."
+
+If Chat hits quota:
+"The deterministic production flows have already passed: contract, tests,
+write-back, steward, and judge-check. I will stop Chat here to protect the
+free-tier quota."
+
+If a judge asks whether Draft remediation PR opens GitHub:
+"This screen intentionally drafts the PR content. It does not blindly push code.
+GitHub issue dispatch is available separately through Chat or Auto Remediation
+when the operator chooses that side effect."
+
+
+Final Submission Checklist
+==========================
+
+[ ] docker compose ps shows core services running.
+[ ] http://localhost:3000 loads.
+[ ] http://localhost:8585/my-data loads.
+[ ] http://localhost:8000/health returns status ok.
+[ ] system/info shows demo_mode=false and dry_run=false.
+[ ] judge-check passes 9/9.
+[ ] OpenMetadata table dim_customer is visible before MetaFlow actions.
+[ ] Contract Copilot generates contract for the exact FQN.
+[ ] Publish reports Published.
+[ ] Materialize tests reports failed 0.
+[ ] Remediation draft returns classification, diff, title, labels.
+[ ] Governance write-back succeeds.
+[ ] OpenMetadata UI shows metaflow_health_score custom property.
+[ ] Steward is enabled and polling.
+[ ] One playbook completes.
+[ ] Personas publish succeeds.
+[ ] Chat is run at most once during the final recording.

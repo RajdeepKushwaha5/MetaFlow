@@ -1,559 +1,842 @@
 # MetaFlow
 
-> **A reference implementation of writeback-capable AI agents for OpenMetadata.**
-> We contributed a new MCP tool spec ([`mcp_contrib/`](mcp_contrib/)), an AI Studio Persona publisher, and a self-healing Data Contracts pattern — and shipped a UI to prove it works end-to-end.
+MetaFlow is a multi-agent AI control plane for OpenMetadata.
 
-> 🎬 **30-second pitch:** _link your demo video here_
+It helps data teams move from passive metadata and alerting to governed, reviewable, self-healing data operations. OpenMetadata remains the system of record. MetaFlow reads from it, reasons over it, writes governance signals back into it, and coordinates specialist agents across operational tools.
 
-> Built for the [OpenMetadata Hackathon](https://github.com/open-metadata/OpenMetadata/issues/26645) — **Pick #2: Multi-MCP Agent Orchestrator** (Track T-01: MCP Ecosystem & AI Agents)
+The project was built for the OpenMetadata Hackathon, with the primary focus on multi-agent orchestration, OpenMetadata MCP, AI-assisted data contracts, governance write-back, and production-style metadata operations.
 
----
+## The Problem
 
-## 🛠 What we contributed back to OpenMetadata
+Modern data teams already have catalogs, lineage graphs, quality tests, incident tools, and chat systems. The hard part is that these systems usually remain disconnected.
 
-This is the part Nick called out on the hackathon Slack — _"a great idea for the hackathon is taking those tools, adding to them, building on top of them."_ Our contributions live in [`mcp_contrib/`](mcp_contrib/) and are wired into a working backend:
+When a data problem happens, teams often receive an alert such as:
 
-| Contribution | Lives in | Reference impl |
-|---|---|---|
-| **`om_apply_health_score`** — MCP tool spec for autonomous agents to score OM entities and write the score back as a native custom property | [`mcp_contrib/om_apply_health_score.json`](mcp_contrib/om_apply_health_score.json) | [`backend/app/core/governance.py`](backend/app/core/governance.py) → `write_health_score` |
-| **AI Studio Persona publisher** — pushes 12 MetaFlow specialists into OM's native Persona registry (`client.personas.upsert`) so agents appear alongside OM's own | [`backend/app/core/personas.py`](backend/app/core/personas.py) | `POST /api/personas/publish` |
-| **Self-healing Data Contracts pattern** — generates OM 1.12 contracts from lineage + profiler stats, materializes every gate as a real `dataQuality/testCases` POST, and AI-classifies failures into ready-to-merge SQL fixes | [`backend/app/core/contracts.py`](backend/app/core/contracts.py) | `POST /api/reliability/contract/heal` |
-
-We're framing this as a **contribution to the MCP ecosystem**, not just an app on top of it.
-
----
-
-## 🏆 Three things that win the demo
-
-### 1. Self-healing Data Contracts (the OM 1.12 flagship feature, used end-to-end)
-Walk a table's lineage and profiler stats → generate a full **OM 1.12 Data Contract** with all six dimensional-validation dimensions tagged → materialize every gate as a real `dataQuality/testCases` POST → when violated, AI classifies the failure (null spike / unique break / regex / range / row-count drift), drafts the SQL fix, and produces a **ready-to-merge GitHub PR description** with the exact dbt files to edit.
-
-> `POST /api/reliability/contract` · `/publish` · `/create-tests` · `/heal`
-
-### 2. Continuous Steward → writes health scores back to OpenMetadata
-A background asyncio loop polls `/api/v1/events`, classifies every change event, and PATCHes a **`metaflow_health_score` custom property** onto the affected table. Open OM's native UI → the table page → Custom Properties panel → MetaFlow's verdict is sitting right there alongside the table's own metadata. **No other team's demo will have OM's own UI in it.**
-
-> `POST /api/steward/start` · `GET /api/steward/digest` · `POST /api/governance/health-score`
-
-### 3. One-flag Judge Mode against the real public sandbox
-`JUDGE_MODE=true docker compose up` → MetaFlow points at `https://sandbox.open-metadata.org`, auto-enables the Steward, and protects the shared sandbox with **dry-run writes** (so judges see exactly what would be PATCHed without polluting other people's view). One curl proves it all works:
-
-```bash
-curl http://localhost:8000/api/system/judge-check | jq
-# → list of 9 checks (OM reachable, auth, LLM, orchestrator, schema-drift,
-#   metrics scan, health-score writeback dry-run, steward, mcp_contrib)
+```text
+customer_id null rate exceeded threshold
 ```
 
----
+That alert alone is not enough. It usually does not know:
 
-## 🚀 Quick start
+- which OpenMetadata table is affected
+- which contract expectation failed
+- which upstream source caused the issue
+- which dashboards or downstream assets are at risk
+- who owns the table
+- whether the columns are sensitive
+- what governance action should be written back
+- what engineering remediation should be drafted
+- whether the same issue already has a GitHub or Jira ticket
 
-### Judge Mode (zero config — runs against the real public sandbox)
+The result is manual incident handling. Engineers jump between OpenMetadata, dashboards, Slack, GitHub, Jira, SQL files, runbooks, and documentation. The metadata exists, but the operational action is still manual.
 
-```bash
-# Set your OM sandbox PAT (login at sandbox.open-metadata.org → profile → Access Tokens)
-export OM_TOKEN=eyJraWQ...
-export GOOGLE_API_KEY=your-gemini-key   # free at aistudio.google.com/apikey
+## The MetaFlow Solution
 
-JUDGE_MODE=true docker compose up
+MetaFlow turns OpenMetadata into the control plane for AI-assisted data operations.
 
-# 1. Confirm everything is wired (the FIRST thing a judge should run)
-curl http://localhost:8000/api/system/judge-check | jq
+Instead of treating OpenMetadata as only a catalog to inspect, MetaFlow treats it as the source of truth for decisions and write-backs. It uses OpenMetadata metadata to power specialist agents that can:
 
-# 2. The headline — generate a self-healing contract
-curl http://localhost:8000/api/reliability/contract?entity_fqn=sample_data.ecommerce_db.shopify.dim_customer
+- discover and summarize real data assets
+- inspect lineage and downstream impact
+- generate OpenMetadata-native data contracts
+- publish data contracts back to OpenMetadata
+- materialize contract gates as OpenMetadata test cases
+- classify contract violations
+- draft SQL or dbt remediation plans
+- write governance health scores back as custom properties
+- patch descriptions and glossary metadata
+- monitor the catalog continuously
+- publish AI personas into OpenMetadata
+- coordinate GitHub, Slack, Google Workspace, Email, Jira, and Notion workflows
 
-# 3. Schema-drift timeline (answers the org's live audience question)
-curl "http://localhost:8000/api/governance/schema-drift?entity_fqn=sample_data.ecommerce_db.shopify.dim_customer"
+The design principle is simple:
 
-# 4. Hard numbers from the real catalog
-curl http://localhost:8000/api/metrics/scan
-
-# 5. Watch the Steward fill its digest (auto-started in Judge Mode)
-sleep 90 && curl http://localhost:8000/api/steward/digest
+```text
+AI can propose actions, but OpenMetadata remains the governed system of record.
 ```
 
-Open http://localhost:5173 → click **Contract Copilot** in the sidebar.
+## What MetaFlow Demonstrates
 
-> 💡 **Sandbox protection:** when Judge Mode is pointed at the public sandbox, write operations (health-score PATCH, custom-property registration) become **dry-runs** — the response shows what *would* have been PATCHed, with full URL and payload, but doesn't actually mutate shared data. To run for real against your own OM, set `JUDGE_DRY_RUN=false` (or just don't use `JUDGE_MODE`).
+MetaFlow is not just a chat interface. It is a working full-stack system with:
 
-### Demo Mode (no OM, no network)
+- a React frontend for operators
+- a FastAPI backend
+- a LangGraph supervisor orchestrating specialist agents
+- OpenMetadata v1.12.4 running locally through Docker Compose
+- MySQL, Elasticsearch, and OpenMetadata ingestion services
+- OpenMetadata REST and MCP-style tool usage
+- deterministic production verification endpoints
+- optional external integrations for collaboration workflows
 
-```bash
-DEMO_MODE=true STEWARD_ENABLED=true docker compose up
-# Every external integration short-circuits to deterministic fixtures —
-# the demo can never fail on a flaky webhook mid-pitch.
+The default local demo entity is:
+
+```text
+sample_db_service.ecommerce_db.shopify.dim_customer
 ```
 
----
+This table is used across the contract, governance, steward, playbook, and judge-check flows.
 
-## 📋 Hackathon wishlist alignment
+## Core Features
 
-This submission directly addresses items the OM team has called out:
+### 1. Data Contract Copilot
 
-- **Schema-drift dashboard** (live audience question in the org talk) → `/api/governance/schema-drift`
-- **MCP tool extensions** (Nick's #1 call-out) → contributed [`om_apply_health_score`](mcp_contrib/) manifest
-- **Custom-property writeback** (audience question on custom attributes) → `metaflow_health_score` written by the Steward
-- **Search-preference-aware AI** (audience question on boost/verify) → `om_get_search_preferences` + `om_search_with_preferences`
-- **Bulk lineage authoring** (Nick's closing Claude-demo parallel) → `bulk-lineage-from-query-logs` playbook
+Contract Copilot is the flagship workflow.
 
----
+It takes an OpenMetadata table FQN and generates a data contract using live metadata context. For the sample `dim_customer` table, it produces:
 
-<details>
-<summary>📚 <b>More features (the supporting cast)</b></summary>
+- schema expectations
+- required fields
+- allowed values
+- email format checks
+- null-rate expectations
+- uniqueness expectations
+- row-count or volume expectations
+- freshness and availability-style SLA metadata
+- lineage source context
 
-The three headlines above are what we'll demo. The features below are real and shipped, but they're supporting cast — open this section if you want to see how deep the rest of the platform goes.
+The contract can then be published back to OpenMetadata as a native data contract.
 
-- **One supervisor across 7 platforms** — LangGraph orchestrator delegates to 12 specialists across OpenMetadata, GitHub, Slack, Google, Email, Jira, and Notion (14 playbooks total).
-- **Real-data metrics scan** — `/api/metrics/scan` returns hard numbers (PII gaps, contract coverage %, DQ pass rate, ownership %) instead of screenshots.
-- **"Right answer in fewest tokens"** — `/api/metrics/efficiency` shows a live counter of tokens NOT sent to the LLM thanks to OM-native filtering. Direct response to OM's framing as the way to manage AI spend.
-- **AI Studio Persona publishing** — `POST /api/personas/publish` upserts every MetaFlow specialist into OM as a native Persona via `client.personas.upsert`. Falls back to a local registry on older OM builds.
-- **OAuth 2.0 client-credentials with auto-refresh** — set `OM_OAUTH_*` to swap the long-lived PAT for short-lived OAuth tokens (Okta / Auth0 / Keycloak / Google). All OM calls go through `build_auth_headers()` so it's a config-only flip. `GET /api/system/auth` proves it.
-- **Server-side multi-turn conversations** — `USE_AI_SDK_CONVERSATIONS=true` moves chat history from local SQLite into OM via the AI SDK's Conversations API. Falls back transparently if the connected build predates it.
-- **Virtual OM connector export** — `GET /api/connector/export` frames MetaFlow's outputs in an OM-ingestion envelope, so downstream pipelines can consume our autonomous decisions as a metadata source.
-- **Webhook auto-triage** — `POST /api/webhooks/openmetadata` auto-routes DQ failures into the DQ Fire Drill playbook and schema changes into Impact Radar.
+Main endpoints:
 
-</details>
+```text
+GET  /api/reliability/contract
+POST /api/reliability/contract/publish
+GET  /api/reliability/contract/status
+POST /api/reliability/contract/create-tests
+POST /api/reliability/contract/heal
+```
 
----
+Example:
 
-## 🧭 Mapped to OpenMetadata's three pillars
+```text
+http://localhost:8000/api/reliability/contract?entity_fqn=sample_db_service.ecommerce_db.shopify.dim_customer
+```
 
-| Pillar | What MetaFlow contributes | Endpoints / Tools |
-|---|---|---|
-| **🔎 Data Discovery** | `semantic_search`-first prompt, "right answer in fewest tokens" filtering, OM search-preference aware | `chat`, `om_search_with_preferences` |
-| **📡 Data Observability** | Self-healing OM 1.12 Data Contracts, schema-drift timeline from native `versions/` API, Continuous Steward on `/api/v1/events` | `/api/reliability/contract`, `/api/governance/schema-drift`, `/api/steward/*` |
-| **🛡️ Data Governance** | Autonomous PII tagging + glossary creation. Every Steward scan **PATCHes a `metaflow_health_score` custom property back to the entity in OM** — visible in OM's UI. | `/api/governance/health-score`, `om_governance_tools` |
+Expected output includes:
 
+- `demo=false`
+- a generated contract object
+- YAML representation
+- quality gates
+- stats such as upstream sources, columns analyzed, and schema expectations
 
+### 2. Quality Gate Materialization
 
----
+MetaFlow converts generated contract gates into OpenMetadata test cases.
+
+Example gates include:
+
+- `columnValuesToBeNotNull`
+- `columnValuesToBeUnique`
+- `columnValuesToMatchRegex`
+- `columnValuesToBeInSet`
+- `tableRowCountToBeBetween`
+
+If a test case already exists, MetaFlow skips it instead of duplicating it. This makes the flow idempotent and suitable for repeated demos or production-style workflows.
+
+The important success condition is:
+
+```text
+failed = 0
+```
+
+### 3. Self-Healing Remediation Drafts
+
+When a contract violation is described, MetaFlow classifies the failure and drafts a remediation plan.
+
+Example violation:
+
+```text
+Null rate on customer_id exceeded threshold (0.6% > 0.1%)
+```
+
+MetaFlow returns:
+
+- classification, such as `null`
+- SQL or dbt-oriented fix guidance
+- likely file paths to inspect
+- a PR-style title
+- a structured PR body
+- labels such as `contract-violation` and `metaflow`
+
+This flow intentionally drafts the remediation. It does not blindly open a pull request or push code. The generated output is meant to be reviewed by an engineer.
+
+### 4. Governance Write-Back
+
+MetaFlow proves that it can write governed metadata back into OpenMetadata.
+
+The Governance Agent can calculate a health score for an entity and PATCH it back into OpenMetadata as a custom property:
+
+```text
+metaflow_health_score
+```
+
+This score is visible on the native OpenMetadata table page under Custom Properties.
+
+Related capabilities:
+
+- health score write-back
+- description patching
+- glossary creation
+- glossary term creation
+- tag and owner style governance operations through OpenMetadata tooling
+
+Main endpoints:
+
+```text
+POST /api/governance/health-score
+POST /api/governance/description
+POST /api/governance/glossary
+GET  /api/governance/schema-drift
+```
+
+### 5. Schema Drift Timeline
+
+MetaFlow reads OpenMetadata entity version history and turns it into a schema drift timeline.
+
+Example:
+
+```text
+http://localhost:8000/api/governance/schema-drift?entity_fqn=sample_db_service.ecommerce_db.shopify.dim_customer
+```
+
+This helps operators understand what changed, when it changed, and how that change relates to governance or reliability risk.
+
+### 6. Continuous Steward
+
+The Continuous Steward is a background monitoring loop.
+
+It polls OpenMetadata for signals such as:
+
+- metadata changes
+- quality signals
+- contract evidence
+- governance gaps
+- table-level health indicators
+
+It maintains a live state and digest that can be viewed from the UI or through the backend.
+
+Main endpoints:
+
+```text
+GET  /api/steward/state
+GET  /api/steward/digest
+POST /api/steward/start
+POST /api/steward/stop
+```
+
+This shows that MetaFlow is not limited to button-click automation. It can continuously watch the metadata system and prepare operational next actions.
+
+### 7. Multi-Agent Chat
+
+MetaFlow includes a natural-language chat interface backed by a LangGraph supervisor.
+
+The supervisor routes user requests to specialist agents. The UI streams reasoning and tool activity so the operator can see which agent is working and why.
+
+Example prompt:
+
+```text
+Find tables with failing DQ tests and summarize the next action in 3 bullets.
+```
+
+The chat system is designed for operational questions over OpenMetadata and connected tools. It is not meant to be a generic chatbot detached from metadata.
+
+### 8. Playbooks
+
+Playbooks provide repeatable workflows for common data operations.
+
+Examples include:
+
+- impact analysis
+- PII compliance sweep
+- data quality fire drill
+- metadata health review
+- contract copilot workflow
+- incident response
+- platform KPI reporting
+- bulk lineage authoring
+- cross-platform notification and ticketing
+
+Playbooks stream step-by-step progress so an operator can follow what the system is doing.
+
+Main endpoints:
+
+```text
+GET  /api/playbooks
+POST /api/playbooks/run
+```
+
+### 9. Personas
+
+MetaFlow can publish its specialist agents into OpenMetadata as Personas where supported.
+
+This is important because the agents themselves become cataloged and governed. They are not just hidden backend code. They are part of the metadata operating model.
+
+Main endpoints:
+
+```text
+GET  /api/personas
+POST /api/personas/publish
+POST /api/personas/{persona_name}/invoke
+```
+
+### 10. Metrics And Platform Insights
+
+MetaFlow includes metrics and insights endpoints for platform-level reporting.
+
+Examples:
+
+```text
+GET /api/metrics/scan
+GET /api/metrics/efficiency
+POST /api/metrics/efficiency/probe
+```
+
+These flows summarize OpenMetadata coverage and operational health indicators such as ownership, descriptions, quality, and efficiency.
+
+### 11. Webhook Auto-Triage
+
+MetaFlow can receive OpenMetadata webhook payloads and route them into the correct workflow.
+
+Main endpoint:
+
+```text
+POST /api/webhooks/openmetadata
+```
+
+Example use cases:
+
+- data quality failure triggers a data quality fire drill
+- schema change triggers impact analysis
+- contract violation triggers remediation drafting
+
+### 12. GitHub, Slack, Google, Email, Jira, And Notion Integrations
+
+MetaFlow includes optional tool integrations for cross-platform workflows.
+
+Supported integration families:
+
+- GitHub issues, gists, and issue search
+- Slack notifications and alerts
+- Google Sheets and Docs
+- Email alerts and HTML reports through SMTP
+- Jira issues, comments, and search
+- Notion pages and block updates
+
+These tools are optional. If credentials are not configured, the core OpenMetadata workflows still work.
+
+## OpenMetadata Contributions And Extension Points
+
+MetaFlow includes contribution-oriented work in addition to the application itself.
+
+### MCP Tool Spec: `om_apply_health_score`
+
+Location:
+
+```text
+mcp_contrib/om_apply_health_score.json
+```
+
+Purpose:
+
+This tool describes how an autonomous agent can write a health score and per-dimension breakdown back to an OpenMetadata entity as a native custom property.
+
+Reference implementation:
+
+```text
+backend/app/core/governance.py
+```
+
+### AI Studio Persona Publisher
+
+Location:
+
+```text
+backend/app/core/personas.py
+```
+
+Purpose:
+
+Publishes MetaFlow specialists into OpenMetadata as Personas when the connected OpenMetadata build supports it.
+
+### Self-Healing Data Contracts Pattern
+
+Location:
+
+```text
+backend/app/core/contracts.py
+```
+
+Purpose:
+
+Shows how to generate contracts, publish them to OpenMetadata, materialize quality gates as test cases, inspect contract status, and draft remediation when a violation occurs.
 
 ## Architecture
 
-```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                            React Frontend                                │
-│   ┌──────────────┐   ┌─────────────────────────────────────────────────┐ │
-│   │  Chat Panel   │   │              Playbook Runner                   │ │
-│   │  (free-form)  │   │  Impact | PII | DQ | Health | DQ+Notify       │ │
-│   │  + Reasoning  │   │  PII+Track | DQ+Sheet | AuditDoc | Jira+Email │ │
-│   │  Timeline     │   │  Lineage+Notion | Incident | DQ Recommender   │ │
-│   │               │   │  Platform Health KPI                          │ │
-│   └──────┬───────┘   └──────────────────┬──────────────────────────── │ │
-│          │          SSE Streaming        │                              │
-└──────────┼──────────────────────────────┼──────────────────────────────┘
-           │                              │
-┌──────────┼──────────────────────────────┼──────────────────────────────┐
-│          ▼        FastAPI Backend       ▼                              │
-│   ┌────────────────────────────────────────────────────────────────┐  │
-│   │         LangGraph Supervisor Orchestrator (12 agents)          │  │
-│   │                                                                │  │
-│   │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐         │  │
-│   │  │Discovery │ │ Lineage  │ │ Curator  │ │  DQ      │         │  │
-│   │  │  Agent   │ │  Agent   │ │  Agent   │ │  Agent   │         │  │
-│   │  │ search   │ │ trace    │ │ patch    │ │ RCA      │         │  │
-│   │  └──────────┘ └──────────┘ └──────────┘ └──────────┘         │  │
-│   │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐         │  │
-│   │  │Governance│ │ GitHub   │ │  Slack   │ │ Google   │         │  │
-│   │  │  Agent   │ │  Agent   │ │  Agent   │ │  Agent   │         │  │
-│   │  │ tags     │ │ issues   │ │ alerts   │ │ sheets   │         │  │
-│   │  └──────────┘ └──────────┘ └──────────┘ └──────────┘         │  │
-│   │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐         │  │
-│   │  │ Email    │ │  Jira    │ │ Notion   │ │Insights  │         │  │
-│   │  │  Agent   │ │  Agent   │ │  Agent   │ │  Agent   │         │  │
-│   │  │ SMTP     │ │ tickets  │ │ pages    │ │ KPIs     │         │  │
-│   │  └──────────┘ └──────────┘ └──────────┘ └──────────┘         │  │
-│   └──────┬──────────┬──────────┬──────────┬──────┬──────┬────────┘  │
-│          │          │          │          │      │      │            │
-└──────────┼──────────┼──────────┼──────────┼──────┼──────┼────────────┘
-           │          │          │          │      │      │
-  ┌────────▼───────┐ ┌▼─────────▼┐ ┌───────▼──┐ ┌▼─────┐│┌──────┐┌──────┐
-  │ OpenMetadata   │ │ GitHub    │ │ Slack    │ │Google│││ Jira ││Notion│
-  │ MCP Server     │ │ REST API  │ │ Webhooks │ │  API ││└──────┘└──────┘
-  │ 11 MCP Tools   │ │ Issues    │ │ Block Kit│ │Sheets││  ┌──────┐
-  │ + 5 REST tools │ │ Gists     │ │ Messages │ │ Docs ││  │Email │
-  │ /mcp endpoint  │ │           │ │          │ │      ││  │ SMTP │
-  └────────────────┘ └───────────┘ └──────────┘ └──────┘│  └──────┘
+```text
+React Frontend
+  |
+  | HTTP + SSE
+  v
+FastAPI Backend
+  |
+  | LangGraph Supervisor
+  v
+Specialist Agents
+  |
+  | OpenMetadata REST / AI SDK / MCP-style tools
+  | Optional external APIs
+  v
+OpenMetadata + GitHub + Slack + Google + Email + Jira + Notion
 ```
 
-## Why Multi-MCP?
+### Runtime Components
 
-The hackathon challenge asks: *"Combine OpenMetadata MCP with GitHub MCP, Slack MCP for cross-platform workflows."*
+The production Docker stack includes:
 
-MetaFlow answers this by orchestrating **seven platforms** through a single LangGraph supervisor:
+- MetaFlow frontend on port `3000`
+- MetaFlow backend on port `8000`
+- OpenMetadata server on port `8585`
+- OpenMetadata ingestion service on port `8080`
+- MySQL on port `3306`
+- Elasticsearch on ports `9200` and `9300`
 
-1. **OpenMetadata MCP** — Metadata discovery, lineage, governance, DQ testing (11 MCP tools + 5 REST API analytics tools)
-2. **GitHub API** — Create issues, publish gist reports, search existing issues (3 tools)
-3. **Slack Webhooks** — Team notifications with rich Block Kit formatting (2 tools)
-4. **Google Workspace** — Sheets for tabular reports, Docs for narrative documents (3 tools)
-5. **Email (SMTP)** — Alert emails and detailed HTML report delivery (2 tools)
-6. **Jira** — Issue tracking, comments, JQL search (3 tools)
-7. **Notion** — Page creation and block management (2 tools)
+### Backend
 
-**Cross-platform workflow examples:**
-> "Find failed DQ tests, create a GitHub issue, and notify Slack"
->
-> → `data_quality_agent` scans via OM MCP → `github_agent` creates issue → `slack_agent` posts alert
+The backend is a FastAPI service that provides:
 
-> "Audit metadata health, create a Google Sheet report, and alert the team"
->
-> → `discovery_agent` audits → `google_agent` creates spreadsheet → `slack_agent` posts alert
+- health checks
+- settings and integration management
+- chat orchestration
+- playbook execution
+- reliability APIs
+- governance APIs
+- steward APIs
+- metrics APIs
+- persona APIs
+- OpenMetadata webhook handling
 
----
+### Frontend
 
-## How It Works
+The frontend is a React and TypeScript application with pages for:
 
-A single natural language message triggers a multi-agent, multi-platform workflow. Here's what happens under the hood when you type a real request:
+- chat
+- playbooks
+- contract copilot
+- data reliability
+- auto remediation
+- governance
+- steward operations
+- personas
+- integrations
+- settings
+- dashboard and overview experiences
 
-### Workflow: "Find failed data quality tests, create a Jira ticket, and email the data team"
+### Agent Layer
 
-```
-  YOU                          MetaFlow                              External Services
-   │                              │                                        │
-   │  "Find failed DQ tests,     │                                        │
-   │   create Jira ticket,       │                                        │
-   │   email the data team"      │                                        │
-   │ ────────────────────────►   │                                        │
-   │                              │                                        │
-   │    ┌─ STEP 1 ───────────────┤                                        │
-   │    │ Supervisor routes to    │                                        │
-   │    │ data_quality_agent      │                                        │
-   │    │                         │  get_test_definitions()                │
-   │    │                         │ ──────────────────────────────────►   │
-   │    │                         │          OpenMetadata MCP              │
-   │    │                         │ ◄──────────────────────────────────   │
-   │    │                         │  root_cause_analysis()                 │
-   │    │                         │ ──────────────────────────────────►   │
-   │    │                         │ ◄──────────────────────────────────   │
-   │  ◄─ SSE: agent_start        │  Found: 3 failing tests on            │
-   │    "Data Quality"            │  orders.amount (null rate 23%)        │
-   │                              │                                        │
-   │    ┌─ STEP 2 ───────────────┤                                        │
-   │    │ Supervisor routes to    │                                        │
-   │    │ jira_agent              │                                        │
-   │    │                         │  create_jira_issue()                   │
-   │    │                         │ ──────────────────────────────────►   │
-   │    │                         │              Jira REST API             │
-   │    │                         │ ◄──────────────────────────────────   │
-   │  ◄─ SSE: agent_start        │  Created: PROJ-1234                    │
-   │    "Jira" + tool_call        │  "DQ Failure: orders.amount"          │
-   │                              │                                        │
-   │    ┌─ STEP 3 ───────────────┤                                        │
-   │    │ Supervisor routes to    │                                        │
-   │    │ email_agent             │                                        │
-   │    │                         │  send_email_report()                   │
-   │    │                         │ ──────────────────────────────────►   │
-   │    │                         │              SMTP Server               │
-   │    │                         │ ◄──────────────────────────────────   │
-   │  ◄─ SSE: agent_start        │  Sent HTML report to                   │
-   │    "Email" + tool_call       │  data-team@company.com                │
-   │                              │                                        │
-   │  ◄─ SSE: chunk              │                                        │
-   │    Final summary with        │                                        │
-   │    Jira link + email conf.   │                                        │
-   │                              │                                        │
-```
+MetaFlow uses a LangGraph supervisor to route work to specialist agents.
 
-**What the user sees in real time:**
+Specialists include:
 
-```
-┌─────────────────────────────────────────────────┐
-│  Reasoning                                       │
-│                                                  │
-│  ● Data Quality          root_cause_analysis     │
-│    ──────────────── done ────────────────        │
-│                                                  │
-│  ● Jira                  create_jira_issue       │
-│    ──────────────── done ────────────────        │
-│                                                  │
-│  ● Email                 send_email_report       │
-│    ──────────────── done ────────────────        │
-│                                                  │
-├─────────────────────────────────────────────────┤
-│                                                  │
-│  I found 3 failing data quality tests on the     │
-│  `orders.amount` column:                         │
-│                                                  │
-│  - **Null rate**: 23% (threshold: 5%)            │
-│  - **Root cause**: Upstream ETL job dropped       │
-│    the NOT NULL constraint on 2025-04-01         │
-│                                                  │
-│  Actions taken:                                   │
-│  - Created Jira ticket **PROJ-1234**             │
-│  - Emailed HTML report to data-team@company.com  │
-│                                                  │
-└─────────────────────────────────────────────────┘
-```
+- Discovery Agent
+- Lineage Agent
+- Curator Agent
+- Data Quality Agent
+- Governance Agent
+- GitHub Agent
+- Slack Agent
+- Google Agent
+- Email Agent
+- Jira Agent
+- Notion Agent
+- Insights Agent
+- Contract Copilot Agent
 
-**Key design decisions:**
-- The **LangGraph supervisor** decides which agents to call and in what order — the user never picks agents manually
-- Each agent transition streams as an **SSE event**, so the UI shows a live reasoning timeline
-- The supervisor can call **1 agent or 5 agents** depending on what the request needs — simple lookups use 1, cross-platform workflows chain many
-- All agent outputs feed back to the supervisor, which composes a **single coherent final response**
-
----
-
-## Features
-
-### 12 Specialist Agents (Multi-MCP)
-
-| Agent | Platform | Tools | Purpose |
-|-------|----------|-------|---------|
-| **Discovery** | OpenMetadata MCP | `semantic_search`, `search_metadata`, `get_entity_details` | Find and describe data assets |
-| **Lineage** | OpenMetadata MCP | `get_entity_lineage`, `get_entity_details` | Trace data flow and dependencies |
-| **Curator** | OpenMetadata MCP | `get_entity_details`, `patch_entity`, `create_glossary_term` | Enrich metadata, fix documentation |
-| **Data Quality** | OpenMetadata MCP | `get_test_definitions`, `create_test_case`, `root_cause_analysis`, `get_entity_details` | DQ tests, failure diagnosis, impact-scored RCA |
-| **Governance** | OpenMetadata MCP | `search_metadata`, `semantic_search`, `get_entity_details`, `patch_entity`, `create_glossary`, `create_glossary_term` | Compliance, PII tagging, glossaries |
-| **Insights** | OpenMetadata REST API | `get_data_insights_summary`, `get_entity_counts`, `get_dq_summary`, `get_ownership_coverage`, `get_description_coverage` | Platform analytics, KPI tracking, health reports |
-| **GitHub** | GitHub REST API | `create_github_issue`, `create_github_gist`, `search_github_issues` | Issue tracking, report publishing |
-| **Slack** | Slack Webhooks | `send_slack_notification`, `send_slack_alert` | Team alerts with severity formatting |
-| **Google** | Google Workspace | `create_google_sheet`, `create_google_doc`, `append_to_google_sheet` | Sheets reports, Doc publications |
-| **Email** | SMTP | `send_email_alert`, `send_email_report` | Alert emails & HTML reports |
-| **Jira** | Jira REST API | `create_jira_issue`, `add_jira_comment`, `search_jira_issues` | Issue tracking & JQL search |
-| **Notion** | Notion API | `create_notion_page`, `append_notion_blocks` | Documentation pages & blocks |
-
-### 13 Playbooks (4 Core + 4 Cross-Platform + 3 Mega-Workflows + 2 AI-Powered)
-
-**Core Playbooks (OpenMetadata only):**
-- **Impact Radar** — Analyze blast radius of schema changes via lineage
-- **PII Compliance Sweep** — Scan and tag PII across the catalog
-- **Data Quality Fire Drill** — Root cause analysis + downstream impact
-- **Metadata Health Doctor** — Audit and auto-fix metadata gaps
-
-**Cross-Platform Playbooks (OM + GitHub + Slack + Google):**
-- **DQ Report & Notify** — Find DQ failures -> publish GitHub gist -> alert Slack
-- **PII Compliance & Track** — Scan PII -> tag tables -> create GitHub issue -> notify Slack
-- **DQ Sheet & Alert** — Find DQ failures -> create Google Sheet report -> alert Slack
-- **Metadata Audit Doc** — Audit metadata -> publish Google Doc -> create GitHub issue -> notify Slack
-
-**Mega-Workflows (OM + Jira + Email + Notion):**
-- **DQ Jira & Email** — Find DQ failures -> create Jira ticket -> send email report
-- **Lineage Notion & Jira** — Trace lineage -> document in Notion -> create Jira tracking issue
-- **Full Incident Response** — DQ failure -> GitHub issue + Slack alert + Jira ticket + email report + Notion doc
-
-**AI-Powered Analytics (Insights Agent + OM REST API):**
-- **DQ Test Recommender** — Analyze table schema & data profile -> recommend DQ tests -> auto-create test cases
-- **Platform Health & KPI Report** — Gather entity counts, ownership/description coverage, DQ summary -> generate executive KPI report
-
-### Free-Form Chat with Live Agent Reasoning
-Natural language interface that automatically routes questions to the right specialist. The UI shows **real-time agent reasoning** — which specialist is active, which tools are being called — as the orchestrator works.
-
-### Real-Time Streaming
-Server-Sent Events (SSE) for live agent reasoning timeline and step-by-step playbook progress.
-
-### Conversation History with Resume
-All conversations are persisted. Browse past chats and **continue any conversation** right where you left off.
-
-### Rich Health Check
-The `/health` endpoint checks orchestrator status, LLM availability, and OpenMetadata connectivity — returning component-level health for monitoring.
-
-### Dual LLM Support
-Switch between **Google Gemini** and **OpenAI** models on the fly via the Settings page. API keys managed securely in-app.
+Each specialist has a focused prompt and access to the tools needed for its domain.
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|------------|
-| **Orchestration** | LangGraph + langgraph-supervisor |
-| **MCP Integration** | OpenMetadata AI SDK (`data-ai-sdk[langchain]`) |
-| **LLM** | Google Gemini 2.5 Flash / OpenAI GPT-4o (switchable) |
-| **Backend** | FastAPI + SSE-Starlette |
-| **Frontend** | React 19 + TypeScript + Tailwind CSS |
-| **Cross-Platform** | GitHub + Slack + Google Workspace + Email + Jira + Notion |
-| **Deployment** | Docker Compose (OpenMetadata v1.12.4) |
+|---|---|
+| Frontend | React, TypeScript, Vite, Tailwind CSS |
+| Backend | FastAPI, Python |
+| Streaming | Server-Sent Events |
+| Agent orchestration | LangGraph, langgraph-supervisor |
+| OpenMetadata integration | OpenMetadata REST APIs, AI SDK, MCP-style tool usage |
+| LLM | Google Gemini by default, OpenAI and Anthropic support in code paths |
+| Local metadata stack | OpenMetadata v1.12.4, MySQL, Elasticsearch, ingestion service |
+| Deployment | Docker Compose |
 
-## Quick Start
+## Important URLs
+
+After the stack is running:
+
+```text
+MetaFlow UI:        http://localhost:3000
+Backend:            http://localhost:8000
+FastAPI docs:       http://localhost:8000/docs
+OpenMetadata:       http://localhost:8585
+OpenMetadata MyData: http://localhost:8585/my-data
+```
+
+OpenMetadata login for the seeded local stack:
+
+```text
+judge@open-metadata.org / Admin@123
+```
+
+Main demo FQN:
+
+```text
+sample_db_service.ecommerce_db.shopify.dim_customer
+```
+
+## Demo Flow
+
+The recommended judge demo flow is:
+
+1. Show MetaFlow UI at `http://localhost:3000`.
+2. Show OpenMetadata table at `http://localhost:8585/my-data`.
+3. Generate a data contract for `sample_db_service.ecommerce_db.shopify.dim_customer`.
+4. Publish the contract.
+5. Materialize quality gates.
+6. Draft a remediation plan for a `customer_id` null-rate breach.
+7. Run governance health score write-back.
+8. Show `metaflow_health_score` in the OpenMetadata native UI.
+9. Show Continuous Steward state.
+10. Run one playbook.
+11. Publish personas or run one short chat prompt.
+
+The final demo script is in:
+
+```text
+METAFLOW_FINAL_DEMO_SCRIPT.txt
+```
+
+## Setup
 
 ### Prerequisites
-- Docker & Docker Compose (6GB+ RAM allocated)
-- Google AI API key (free at https://aistudio.google.com/apikey)
-- OpenMetadata PAT token (generated after first login)
-- *(Optional)* GitHub personal access token for GitHub agent
-- *(Optional)* Slack webhook URL for Slack agent
-- *(Optional)* Google Cloud Service Account JSON for Google agent
 
-### 1. Clone and configure
+Install:
 
-```bash
-git clone <repo-url> && cd metaflow
-cp backend/.env.example backend/.env
+- Docker Desktop
+- Docker Compose
+- Git
+
+Recommended resources:
+
+- at least 6 GB Docker memory
+- stable internet connection for initial image pulls
+
+Optional:
+
+- Google AI Studio API key for Gemini
+- GitHub token for GitHub issue creation
+- Slack webhook URL
+- Google service account JSON
+- Jira API token
+- Notion API key
+- SMTP credentials
+
+### 1. Clone The Repository
+
+```powershell
+git clone <repo-url>
+cd metaflow
 ```
 
-Edit `backend/.env`:
+### 2. Configure Backend Environment
+
+Create or edit:
+
+```text
+backend/.env
+```
+
+Important variables:
+
 ```env
-# Required
-GOOGLE_API_KEY=your-gemini-api-key
-OM_HOST=http://openmetadata-server:8585
-OM_TOKEN=your-personal-access-token
+# LLM
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-2.5-flash
+GOOGLE_API_KEY=your_primary_gemini_key
 
-# Optional — Multi-MCP integrations
-GITHUB_TOKEN=ghp_your_github_pat
-GITHUB_DEFAULT_REPO=owner/repo
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../xxx
-GOOGLE_SERVICE_ACCOUNT_FILE=path/to/service-account.json
+# Optional Gemini key rotation. Comma-separated.
+GOOGLE_API_KEYS=your_primary_gemini_key,your_second_key,your_third_key
+
+# OpenMetadata
+AI_SDK_HOST=http://openmetadata-server:8585
+AI_SDK_TOKEN=your_openmetadata_token
+
+# Production demo flags
+DEMO_MODE=false
+JUDGE_MODE=true
+JUDGE_DRY_RUN=false
+STEWARD_ENABLED=true
+
+# Optional integrations
+GITHUB_TOKEN=
+GITHUB_DEFAULT_REPO=
+SLACK_WEBHOOK_URL=
+GOOGLE_SERVICE_ACCOUNT_FILE=
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM=
+JIRA_URL=
+JIRA_USER=
+JIRA_API_TOKEN=
+JIRA_PROJECT_KEY=
+NOTION_API_KEY=
+NOTION_DATABASE_ID=
 ```
 
-### 2. Start everything
+Do not commit real API keys or tokens.
 
-```bash
-docker compose up -d
+### 3. Start The Full Stack
+
+From the repository root:
+
+```powershell
+docker compose up -d --build
 ```
 
-This starts:
-- **OpenMetadata** at http://localhost:8585 (admin / admin)
-- **MetaFlow Backend** at http://localhost:8000
-- **MetaFlow Frontend** at http://localhost:3000
+Check containers:
 
-### 3. Set up OpenMetadata MCP
-
-1. Log into OpenMetadata at http://localhost:8585
-2. Go to **Settings → Applications → Marketplace**
-3. Install the **MCP Application**
-4. Go to your **user profile → Access Tokens** and create a Personal Access Token
-5. Add the token to `backend/.env` as `OM_TOKEN`
-6. Run sample data ingestion from **Settings → Bots** for demo data
-
-### 4. Restart MetaFlow
-
-```bash
-docker compose restart backend
+```powershell
+docker compose ps
 ```
 
-### Local Development (without Docker)
+Expected containers:
 
-```bash
-# Backend
+- `metaflow_backend`
+- `metaflow_frontend`
+- `metaflow_openmetadata`
+- `metaflow_mysql`
+- `metaflow_elasticsearch`
+- `metaflow_ingestion`
+
+### 4. Seed Sample Data If Needed
+
+If the sample OpenMetadata table is missing:
+
+```powershell
+.\seed.ps1
+```
+
+Expected sample table:
+
+```text
+sample_db_service.ecommerce_db.shopify.dim_customer
+```
+
+### 5. Verify Readiness
+
+Open:
+
+```text
+http://localhost:3000
+http://localhost:8585
+http://localhost:8000/health
+```
+
+Verify system info:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/api/system/info | ConvertTo-Json -Depth 10
+```
+
+Expected:
+
+```text
+demo_mode=false
+judge_mode=true
+dry_run=false
+is_sandbox=false
+ai_sdk_host=http://openmetadata-server:8585
+has_om_token=true
+```
+
+Run judge check:
+
+```powershell
+Invoke-RestMethod "http://localhost:8000/api/system/judge-check?entity_fqn=sample_db_service.ecommerce_db.shopify.dim_customer" | ConvertTo-Json -Depth 20
+```
+
+Expected:
+
+```text
+passed=9
+total=9
+ok=true
+```
+
+## Useful API Endpoints
+
+### System
+
+```text
+GET /health
+GET /api/system/info
+GET /api/system/judge-check
+GET /api/system/auth
+POST /api/system/auth/refresh
+```
+
+### Contracts And Reliability
+
+```text
+GET  /api/reliability/impact
+GET  /api/reliability/cause-tree
+GET  /api/reliability/recommendations
+POST /api/reliability/create-test
+GET  /api/reliability/auto-remediate
+POST /api/reliability/dispatch-ticket
+GET  /api/reliability/contract
+POST /api/reliability/contract/publish
+GET  /api/reliability/contract/status
+POST /api/reliability/contract/create-tests
+POST /api/reliability/contract/heal
+```
+
+### Governance
+
+```text
+POST /api/governance/health-score
+POST /api/governance/description
+POST /api/governance/glossary
+GET  /api/governance/schema-drift
+```
+
+### Steward And Metrics
+
+```text
+GET  /api/steward/state
+GET  /api/steward/digest
+POST /api/steward/start
+POST /api/steward/stop
+GET  /api/metrics/scan
+GET  /api/metrics/efficiency
+POST /api/metrics/efficiency/probe
+```
+
+### Chat, Playbooks, Personas
+
+```text
+POST /api/chat
+GET  /api/playbooks
+POST /api/playbooks/run
+GET  /api/personas
+POST /api/personas/publish
+POST /api/personas/{persona_name}/invoke
+```
+
+### Webhooks And Connector Export
+
+```text
+POST /api/webhooks/openmetadata
+POST /webhooks/contract-violation
+GET  /api/connector/export
+```
+
+## Local Development
+
+### Backend
+
+```powershell
 cd backend
 python -m venv .venv
-.venv\Scripts\activate        # Windows
+.\.venv\Scripts\activate
 pip install -e ".[dev]"
-cp .env.example .env          # configure your keys
 uvicorn app.main:app --reload --port 8000
+```
 
-# Frontend
+### Frontend
+
+```powershell
 cd frontend
 npm install
 npm run dev
 ```
 
+The frontend dev server usually runs on:
+
+```text
+http://localhost:5173
+```
+
+The production Docker frontend runs on:
+
+```text
+http://localhost:3000
+```
+
 ## Project Structure
 
-```
+```text
 metaflow/
-├── docker-compose.yml              # Full-stack: OM 1.12.4 + MetaFlow
-├── om-docker-compose.yml           # Reference official OM compose
-├── backend/
-│   ├── pyproject.toml
-│   ├── Dockerfile
-│   ├── app/
-│   │   ├── main.py                 # FastAPI app with SSE endpoints
-│   │   ├── schemas.py              # Pydantic request/response models
-│   │   ├── core/
-│   │   │   ├── config.py           # Settings from env vars
-│   │   │   └── clients.py          # AI SDK + LLM singletons
-│   │   ├── agents/
-│   │   │   ├── prompts.py          # System prompts (12 agents + supervisor)
-│   │   │   ├── specialists.py      # Specialist agent factory
-│   │   │   └── orchestrator.py     # LangGraph multi-MCP supervisor
-│   │   ├── tools/                  # Cross-platform tool modules
-│   │   │   ├── github_tools.py     # GitHub REST API tools (3)
-│   │   │   ├── slack_tools.py      # Slack webhook tools (2)
-│   │   │   ├── google_tools.py     # Google Workspace tools (3)
-│   │   │   ├── email_tools.py      # Email SMTP tools (2)
-│   │   │   ├── jira_tools.py       # Jira REST API tools (3)
-│   │   │   ├── notion_tools.py     # Notion API tools (2)
-│   │   │   └── insights_tools.py   # OM REST API analytics tools (5)
-│   │   ├── core/
-│   │   │   ├── config.py           # Settings from env vars
-│   │   │   ├── clients.py          # AI SDK + LLM singletons
-│   │   │   └── stats.py            # Agent usage statistics
-│   │   └── playbooks/
-│   │       ├── registry.py         # 13 playbook definitions
-│   │       └── executor.py         # Step-by-step playbook runner
-├── frontend/
-│   ├── package.json
-│   ├── vite.config.ts
-│   ├── Dockerfile
-│   ├── nginx.conf
-│   └── src/
-│       ├── App.tsx
-│       ├── components/
-│       │   ├── ChatPanel.tsx
-│       │   ├── PlaybookGallery.tsx
-│       │   ├── PlaybookRunner.tsx
-│       │   ├── ConversationHistory.tsx
-│       │   ├── SettingsPage.tsx
-│       │   └── Dashboard.tsx
-│       └── lib/
-│           ├── api.ts
-│           └── types.ts
+  backend/
+    app/
+      agents/            Specialist definitions, prompts, orchestrator
+      core/              Config, clients, contracts, governance, metrics, steward
+      playbooks/         Playbook registry and executor
+      tools/             GitHub, Slack, Google, Email, Jira, Notion, OM tools
+      main.py            FastAPI application and API routes
+      schemas.py         Pydantic schemas
+    Dockerfile
+    pyproject.toml
+  frontend/
+    src/
+      components/        UI pages and feature components
+      lib/               API client and shared frontend types
+      App.tsx            Main app shell
+    Dockerfile
+    package.json
+    vite.config.ts
+  mcp_contrib/
+    om_apply_health_score.json
+  docker-compose.yml
+  seed.ps1
+  smoke_test.ps1
+  test_all.ps1
+  METAFLOW_FINAL_DEMO_SCRIPT.txt
 ```
 
-## OpenMetadata MCP Tools Used
+## Testing Checklist
 
-All 11 MCP tools from OpenMetadata's AI SDK are utilized across the agents:
+Before recording or submitting:
 
-| Tool | Type | Used By |
-|------|------|---------|
-| `SEARCH_METADATA` | Read | Discovery, Governance |
-| `SEMANTIC_SEARCH` | Read | Discovery, Governance |
-| `GET_ENTITY_DETAILS` | Read | All OM agents |
-| `GET_ENTITY_LINEAGE` | Read | Lineage |
-| `GET_TEST_DEFINITIONS` | Read | Data Quality |
-| `PATCH_ENTITY` | Write | Curator, Governance |
-| `CREATE_GLOSSARY` | Write | Governance |
-| `CREATE_GLOSSARY_TERM` | Write | Curator, Governance |
-| `CREATE_LINEAGE` | Write | (Available for chains) |
-| `CREATE_TEST_CASE` | Write | Data Quality |
-| `ROOT_CAUSE_ANALYSIS` | AI | Data Quality |
+```text
+[ ] docker compose ps shows all core services running.
+[ ] http://localhost:3000 loads.
+[ ] http://localhost:8585/my-data loads.
+[ ] http://localhost:8000/health returns status ok.
+[ ] /api/system/info shows demo_mode=false and dry_run=false.
+[ ] /api/system/judge-check passes 9/9.
+[ ] sample_db_service.ecommerce_db.shopify.dim_customer exists in OpenMetadata.
+[ ] Contract Copilot generates a contract for the exact FQN.
+[ ] Contract publish reports Published.
+[ ] Materialize tests reports failed 0.
+[ ] Remediation draft returns classification, diff, title, and labels.
+[ ] Governance health score write-back succeeds.
+[ ] OpenMetadata UI shows metaflow_health_score under Custom Properties.
+[ ] Continuous Steward is enabled and polling.
+[ ] At least one playbook completes.
+[ ] Personas publish succeeds.
+```
 
-## Cross-Platform & Analytics Tools
+## Notes On API Keys
 
-| Tool | Platform | Parameters |
-|------|----------|------------|
-| `create_github_issue` | GitHub | title, body, labels |
-| `create_github_gist` | GitHub | description, filename, content |
-| `search_github_issues` | GitHub | query, state |
-| `send_slack_notification` | Slack | message |
-| `send_slack_alert` | Slack | title, summary, severity, details, link |
-| `create_google_sheet` | Google Workspace | title, headers, rows |
-| `create_google_doc` | Google Workspace | title, content |
-| `append_to_google_sheet` | Google Workspace | spreadsheet_id, rows |
-| `send_email_alert` | Email (SMTP) | to, subject, body |
-| `send_email_report` | Email (SMTP) | to, subject, html_body |
-| `create_jira_issue` | Jira | summary, description, issue_type |
-| `add_jira_comment` | Jira | issue_key, comment |
-| `search_jira_issues` | Jira | jql_query |
-| `create_notion_page` | Notion | title, content |
-| `append_notion_blocks` | Notion | page_id, blocks |
-| `get_data_insights_summary` | OpenMetadata REST | *(none)* |
-| `get_entity_counts` | OpenMetadata REST | *(none)* |
-| `get_dq_summary` | OpenMetadata REST | *(none)* |
-| `get_ownership_coverage` | OpenMetadata REST | entity_type |
-| `get_description_coverage` | OpenMetadata REST | entity_type |
+MetaFlow supports Gemini API key rotation through:
 
-## Hackathon Alignment
+```env
+GOOGLE_API_KEYS=key1,key2,key3
+```
 
-### Pick #2: Multi-MCP Agent Orchestrator
-> *"Combine OpenMetadata MCP with GitHub MCP, Slack MCP for cross-platform workflows"*
+The backend uses `GOOGLE_API_KEY` first, then falls back to keys in `GOOGLE_API_KEYS` when Gemini returns quota or rate-limit style errors.
 
-MetaFlow directly addresses this by:
-- Orchestrating **7 platforms** (OpenMetadata MCP + GitHub + Slack + Google Workspace + Email + Jira + Notion) in a single supervisor
-- **12 specialist agents** with domain-specific tool assignments
-- **Cross-platform playbooks** that chain operations across all 7 platforms
-- A **natural language router** that decides which agents to invoke
-- **Live agent reasoning** visible in the UI as the orchestrator works
-- **AI-powered analytics**: DQ Test Recommender + Platform Health KPI reports via OM REST API
-- **Impact-scored RCA**: Data Quality agent produces severity × downstream × recency scoring
-- **Webhook auto-triage**: OM webhooks auto-trigger playbooks on DQ failures and schema changes
-
-### Tracks Covered
-- **T-01: MCP Ecosystem & AI Agents** (Primary) — Full multi-agent, multi-MCP orchestration
-- **T-02: Data Quality & Observability** — DQ Fire Drill, DQ Report & Notify, DQ Test Recommender, impact-scored RCA
-- **T-04: Metadata & AI Integration** — Insights agent with platform analytics, KPI tracking
-- **T-05: Documentation & Developer Tools** — Metadata Health Doctor auto-docs
-- **T-06: Open Innovation** — Cross-platform playbook-based metadata ops, webhook auto-trigger
+Do not commit real keys. If a key is pasted into a public chat, issue, commit, or demo recording, rotate it.
 
 ## License
 

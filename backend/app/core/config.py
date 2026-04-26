@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     # LLM (Google Gemini / OpenAI / Anthropic)
     llm_provider: str = "gemini"  # "gemini" | "openai" | "anthropic"
     google_api_key: str = ""
+    google_api_keys: str = ""
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     llm_model: str = "gemini-2.5-flash"
