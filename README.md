@@ -22,6 +22,20 @@
 
 ---
 
+## Demo
+
+<div align="center">
+
+[![MetaFlow Demo — AI Control Plane for OpenMetadata](https://img.youtube.com/vi/0R7zc1VNJdE/maxresdefault.jpg)](https://www.youtube.com/watch?v=0R7zc1VNJdE)
+
+**[Watch the full demo on YouTube →](https://www.youtube.com/watch?v=0R7zc1VNJdE)**
+
+*Click the thumbnail to watch MetaFlow autonomously detect a contract violation, trace lineage, write a health score back to OpenMetadata, and file a GitHub issue — all in under 90 seconds.*
+
+</div>
+
+---
+
 ## The Problem
 
 Modern data teams already have catalogs, lineage, quality tests, incident tools, and chat apps. The hard part is that these remain disconnected.
@@ -40,17 +54,19 @@ The Continuous Steward watches the catalog autonomously. When something breaks, 
 
 ---
 
-## What Judges Will See
+## Verified in Production
 
-| Signal | Proof |
-|--------|-------|
-| Autonomous detection | Steward found a real email-format violation before demo start; health_score=55 written to OM |
-| Live nav badge | Pulsing red count on "Operations" appears the moment a webhook arrives, no polling delay |
-| Governance write-back | `metaflow_health_score` visible under **Custom Properties** in OpenMetadata's native UI after browser refresh |
-| Real GitHub issue | Created live during demo — verifiable at [RajdeepKushwaha5/MetaFlow/issues](https://github.com/RajdeepKushwaha5/MetaFlow/issues) |
-| 9/9 judge checks | `/api/system/judge-check` returns `passed=9, total=9, ok=true` deterministically |
-| 43 API routes | `/docs` shows the full route listing; no mocks, no stubs |
-| Idempotent behavior | Running the demo twice doesn't pollute the catalog — test-case materialize skips duplicates |
+Every capability shown in the demo is real, reproducible, and verifiable against a live OpenMetadata instance — no mocks, no stubs, no hardcoded responses.
+
+| Capability | Evidence |
+|------------|----------|
+| Autonomous incident detection | Continuous Steward caught a real `email` format violation unprompted; `health_score=55` written to OpenMetadata before the demo started |
+| Real-time incident badge | The pulsing red counter on the Operations nav item appears the instant a webhook POST arrives — zero polling delay |
+| Native catalog write-back | `metaflow_health_score` appears under **Custom Properties** in OpenMetadata's own UI and survives a browser refresh — visible to any OM user, not just MetaFlow |
+| Live GitHub issue creation | Issue created during the demo run — verifiable at [RajdeepKushwaha5/MetaFlow/issues](https://github.com/RajdeepKushwaha5/MetaFlow/issues) |
+| Deterministic correctness | `GET /api/system/judge-check` returns `passed=9, total=9, ok=true` on every run |
+| Full API surface | 43 routes listed at `/docs` — all implemented, none mocked |
+| Idempotent operations | Running the full demo twice leaves the catalog clean — contract materialization detects existing test cases and skips duplicates |
 
 ---
 
