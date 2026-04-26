@@ -224,7 +224,7 @@ def compute_impact(entity_fqn: str, max_depth: int = 3) -> dict:
             break
     criticality = _tier_to_score(tier_fqn)
 
-    # BFS downstream via lineage
+    # BFS downstream (and harvest upstream on first pass) via lineage
     frontier = [(entity_id, entity_fqn, 0)]
     visited = {entity_id}
     while frontier:
@@ -232,25 +232,52 @@ def compute_impact(entity_fqn: str, max_depth: int = 3) -> dict:
         for eid, efqn, layer in frontier:
             if layer >= max_depth:
                 continue
-            lineage = _om_request("GET", f"/api/v1/lineage/table/{eid}", params={"downstreamDepth": 1})
+            # On the first pass also request upstreamDepth=1 to get source nodes (layer=-1)
+            params: dict = {"downstreamDepth": 1}
+            if layer == 0:
+                params["upstreamDepth"] = 1
+            lineage = _om_request("GET", f"/api/v1/lineage/table/{eid}", params=params)
             if not lineage:
                 continue
             lineage_nodes = {n.get("id"): n for n in lineage.get("nodes", []) if n.get("id")}
+
+            # --- Harvest upstream source nodes (layer=-1) on first pass only ---
+            if layer == 0:
+                for up_edge in lineage.get("upstreamEdges", []):
+                    from_id = up_edge.get("fromEntity")
+                    if not from_id or from_id in visited:
+                        continue
+                    up_node = lineage_nodes.get(from_id, {})
+                    up_fqn = up_node.get("fullyQualifiedName", from_id)
+                    if up_fqn not in nodes:
+                        up_type = up_node.get("type") or up_node.get("entityType", "table")
+                        nodes[up_fqn] = {
+                            "fqn": up_fqn,
+                            "type": up_type,
+                            "service": (up_node.get("service") or {}).get("name") or up_fqn.split(".")[0],
+                            "layer": -1,
+                        }
+                        edges.append({"source": up_fqn, "target": efqn})
+
+            # --- BFS downstream: only process edges originating from the current entity ---
             for edge in lineage.get("downstreamEdges", []):
+                from_entity = edge.get("fromEntity")
                 to_id = edge.get("toEntity")
-                if not to_id or to_id in visited:
+                # Skip transitive edges (from other nodes) to avoid wrong layer assignment
+                if not to_id or to_id in visited or from_entity != eid:
                     continue
                 visited.add(to_id)
                 to_node = edge.get("toEntityData") or lineage_nodes.get(to_id, {})
                 to_fqn = to_node.get("fullyQualifiedName", to_id)
+                to_type = to_node.get("entityType") or to_node.get("type", "table")
                 nodes[to_fqn] = {
                     "fqn": to_fqn,
-                    "type": to_node.get("entityType") or to_node.get("type", "table"),
-                    "service": to_node.get("service", {}).get("name", ""),
+                    "type": to_type,
+                    "service": (to_node.get("service") or {}).get("name") or to_fqn.split(".")[0],
                     "layer": layer + 1,
                 }
                 edges.append({"source": efqn, "target": to_fqn})
-                if nodes[to_fqn]["type"] == "table":
+                if to_type == "table":
                     next_frontier.append((to_id, to_fqn, layer + 1))
         frontier = next_frontier
 

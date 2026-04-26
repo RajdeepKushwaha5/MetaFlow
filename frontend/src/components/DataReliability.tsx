@@ -59,6 +59,9 @@ const TABS: { id: Tab; label: string; desc: string; icon: typeof Activity }[] = 
 
 export default function DataReliability() {
   const [tab, setTab] = useState<Tab>("impact");
+  const [activeTestFqn] = useState(
+    "sample_db_service.ecommerce_db.shopify.dim_customer.email.regex_email"
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -112,8 +115,8 @@ export default function DataReliability() {
       {/* Tab content */}
       <div className="flex-1 overflow-auto p-4 md:p-8">
         {tab === "impact" && <ImpactRadar />}
-        {tab === "cause" && <CauseTree />}
-        {tab === "remediate" && <AutoRemediation />}
+        {tab === "cause" && <CauseTree initialTestFqn={activeTestFqn} />}
+        {tab === "remediate" && <AutoRemediation initialTestFqn={activeTestFqn} />}
         {tab === "contract" && <ContractGenerator />}
         {tab === "recommend" && <TestRecommender />}
       </div>

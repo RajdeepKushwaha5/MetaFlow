@@ -20,6 +20,7 @@ import {
   TrendingDown,
   GitBranch,
   Brain,
+  Check,
 } from "lucide-react";
 import { fetchCauseTree } from "../lib/api";
 import type { CauseTree as CauseTreeData, CauseTreeNode } from "../lib/types";
@@ -61,23 +62,55 @@ export default function CauseTree({
   const [data, setData] = useState<CauseTreeData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [runningAction, setRunningAction] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
-  const load = useCallback(async (target: string) => {
+  const load = useCallback(async (target: string, clearAction = true) => {
+    const normalized = target.trim() || initialTestFqn;
     setLoading(true);
     setError(null);
+    if (clearAction) setActionMessage(null);
     try {
-      const d = await fetchCauseTree(target);
+      const d = await fetchCauseTree(normalized);
       setData(d);
+      setTestFqn(normalized);
+      setInput(normalized);
     } catch (e) {
+      setData(null);
       setError(e instanceof Error ? e.message : "Failed to load cause tree");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [initialTestFqn]);
 
   useEffect(() => {
-    load(testFqn);
-  }, [testFqn, load]);
+    load(initialTestFqn);
+  }, [initialTestFqn, load]);
+
+  const handleExplain = useCallback(() => {
+    const target = input.trim() || initialTestFqn;
+    void load(target);
+  }, [initialTestFqn, input, load]);
+
+  const runSuggestedAction = useCallback(async (label: string, kind: string) => {
+    const currentTest = input.trim() || testFqn || initialTestFqn;
+    setRunningAction(label);
+    setActionMessage(null);
+    try {
+      if (kind === "investigate") {
+        await load(currentTest, false);
+        setActionMessage(
+          "Review ready: target asset, rule definition, parameters, and execution history are shown in the Root-Cause Analysis section."
+        );
+        return;
+      }
+
+      await load(currentTest, false);
+      setActionMessage("Latest OpenMetadata evidence reloaded for this test case.");
+    } finally {
+      setRunningAction(null);
+    }
+  }, [initialTestFqn, input, load, testFqn]);
 
   return (
     <div className="flex flex-col h-full">
@@ -85,7 +118,7 @@ export default function CauseTree({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            setTestFqn(input.trim() || initialTestFqn);
+            handleExplain();
           }}
           className="flex items-center gap-2 flex-1"
         >
@@ -100,9 +133,17 @@ export default function CauseTree({
           </div>
           <button
             type="submit"
-            className="px-4 py-2 text-sm font-medium bg-brand-500/20 hover:bg-brand-500/30 text-brand-300 border border-brand-500/30 rounded-lg transition"
+            disabled={loading}
+            className="px-4 py-2 text-sm font-medium bg-brand-500/20 hover:bg-brand-500/30 disabled:opacity-60 text-brand-300 border border-brand-500/30 rounded-lg transition"
           >
-            Explain
+            {loading ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 size={14} className="animate-spin" />
+                Explaining
+              </span>
+            ) : (
+              "Explain"
+            )}
           </button>
         </form>
         {data?.demo && (
@@ -141,7 +182,7 @@ export default function CauseTree({
                 </div>
               </div>
               <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
-                {data.narrative}
+                {formatOpenMetadataText(data.narrative)}
               </p>
             </div>
 
@@ -159,6 +200,12 @@ export default function CauseTree({
                 <h3 className="text-xs uppercase tracking-[0.18em] text-zinc-500 font-semibold mb-4">
                   Suggested Actions
                 </h3>
+                {actionMessage && (
+                  <div className="mb-3 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
+                    <Check size={14} />
+                    {actionMessage}
+                  </div>
+                )}
                 <div className="space-y-2">
                   {data.suggested_actions.map((a) => (
                     <div
@@ -175,8 +222,20 @@ export default function CauseTree({
                         <span className="text-[11px] text-zinc-500 font-mono">
                           {Math.round(a.confidence * 100)}% conf.
                         </span>
-                        <button className="px-3 py-1 text-xs bg-brand-500/20 hover:bg-brand-500/30 text-brand-300 border border-brand-500/30 rounded transition">
-                          Run
+                        <button
+                          type="button"
+                          onClick={() => void runSuggestedAction(a.label, a.kind)}
+                          disabled={runningAction !== null}
+                          className="min-w-[3.75rem] px-3 py-1 text-xs bg-brand-500/20 hover:bg-brand-500/30 disabled:opacity-60 text-brand-300 border border-brand-500/30 rounded transition"
+                        >
+                          {runningAction === a.label ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Loader2 size={12} className="animate-spin" />
+                              Run
+                            </span>
+                          ) : (
+                            "Run"
+                          )}
                         </button>
                       </div>
                     </div>
@@ -189,6 +248,12 @@ export default function CauseTree({
       </div>
     </div>
   );
+}
+
+function formatOpenMetadataText(value: string) {
+  return value
+    .replace(/`<#E::table::([^`:]+)::columns::([^`>]+)>`/g, "`$1.$2`")
+    .replace(/<#E::table::([^>:]+)::columns::([^>]+)>/g, "$1.$2");
 }
 
 function TreeNode({
@@ -233,7 +298,9 @@ function TreeNode({
             )}
           </div>
           {node.evidence && (
-            <p className="text-[11px] text-zinc-500 mt-0.5 font-mono break-words">{node.evidence}</p>
+            <p className="text-[11px] text-zinc-500 mt-0.5 font-mono break-words">
+              {formatOpenMetadataText(node.evidence)}
+            </p>
           )}
         </div>
       </button>

@@ -486,6 +486,7 @@ export interface StewardState {
   poll_seconds?: number;
   events_seen?: number;
   actions_taken?: number;
+  unread_events?: number;
   [k: string]: unknown;
 }
 
@@ -493,6 +494,10 @@ export async function fetchStewardState(): Promise<StewardState> {
   const res = await fetch(`${BASE}/api/steward/state`);
   if (!res.ok) await parseError(res, "Failed to fetch steward state");
   return res.json();
+}
+
+export async function clearStewardUnread(): Promise<void> {
+  await fetch(`${BASE}/api/steward/clear-unread`, { method: "POST" });
 }
 
 export interface StewardDigest {

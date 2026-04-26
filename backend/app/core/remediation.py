@@ -295,7 +295,9 @@ def _get_upstream_columns(table_id: str, target_column: str, max_depth: int = 2)
             lineage_nodes = {n.get("id"): n for n in lineage.get("nodes", []) if n.get("id")}
             for edge in lineage.get("upstreamEdges", []):
                 from_id = edge.get("fromEntity")
-                if not from_id or from_id in visited:
+                to_entity = edge.get("toEntity")
+                # Only process edges that actually point TO the current entity
+                if not from_id or from_id in visited or to_entity != tid:
                     continue
                 visited.add(from_id)
                 from_data = edge.get("fromEntityData") or lineage_nodes.get(from_id, {})
@@ -582,6 +584,12 @@ def dispatch_ticket(remediation: dict, target: str = "github") -> dict:
         repo = getattr(settings, "github_default_repo", None)
         if token and repo:
             try:
+                issue_payload = {
+                    "title": payload["title"],
+                    "body": payload["body"],
+                    "labels": payload.get("labels", []),
+                    "assignees": payload.get("assignees", []),
+                }
                 resp = httpx.post(
                     f"https://api.github.com/repos/{repo}/issues",
                     headers={
@@ -589,14 +597,23 @@ def dispatch_ticket(remediation: dict, target: str = "github") -> dict:
                         "Accept": "application/vnd.github+json",
                         "X-GitHub-Api-Version": "2022-11-28",
                     },
-                    json={
-                        "title": payload["title"],
-                        "body": payload["body"],
-                        "labels": payload.get("labels", []),
-                        "assignees": payload.get("assignees", []),
-                    },
+                    json=issue_payload,
                     timeout=15,
                 )
+                if resp.status_code == 422 and issue_payload.get("assignees"):
+                    # OpenMetadata owners are not always GitHub collaborators.
+                    # Keep dispatch reliable by creating the issue unassigned.
+                    issue_payload.pop("assignees", None)
+                    resp = httpx.post(
+                        f"https://api.github.com/repos/{repo}/issues",
+                        headers={
+                            "Authorization": f"Bearer {token}",
+                            "Accept": "application/vnd.github+json",
+                            "X-GitHub-Api-Version": "2022-11-28",
+                        },
+                        json=issue_payload,
+                        timeout=15,
+                    )
                 if resp.status_code < 400:
                     data = resp.json()
                     return {
@@ -611,8 +628,8 @@ def dispatch_ticket(remediation: dict, target: str = "github") -> dict:
 
     # Jira
     if target == "jira":
-        host = getattr(settings, "jira_host", None)
-        email = getattr(settings, "jira_email", None)
+        host = getattr(settings, "jira_url", None)
+        email = getattr(settings, "jira_user", None)
         token = getattr(settings, "jira_api_token", None)
         if host and email and token:
             try:

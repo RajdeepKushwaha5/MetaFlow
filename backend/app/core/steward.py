@@ -48,6 +48,7 @@ class StewardState:
     polls: int = 0
     events_seen: int = 0
     actions_taken: int = 0
+    unread_events: int = 0  # cleared when the UI reads/acknowledges
     events: deque = field(default_factory=lambda: deque(maxlen=_MAX_EVENTS))
 
 
@@ -71,10 +72,34 @@ def get_steward_state() -> dict[str, Any]:
         "polls": _state.polls,
         "events_seen": _state.events_seen,
         "actions_taken": _state.actions_taken,
+        "unread_events": _state.unread_events,
         "buffered_events": len(_state.events),
         "demo_mode": is_demo(),
         "poll_seconds": settings.steward_poll_seconds,
     }
+
+
+def clear_unread_events() -> dict[str, Any]:
+    """Acknowledge all unread events — called when the user opens the Steward page."""
+    _state.unread_events = 0
+    return {"ok": True}
+
+
+def record_webhook_event(entity_fqn: str, event_type: str, summary: str) -> None:
+    """Called from the webhook handler to bump the unread counter immediately."""
+    now = datetime.now(timezone.utc).isoformat()
+    _state.events_seen += 1
+    _state.unread_events += 1
+    event = {
+        "ts": now,
+        "category": "webhook",
+        "severity": "critical",
+        "title": summary or event_type,
+        "entity_fqn": entity_fqn,
+        "event_type": event_type,
+        "source": "webhook",
+    }
+    _state.events.append(event)
 
 
 def get_steward_digest() -> dict[str, Any]:
@@ -165,6 +190,7 @@ async def _poll_once() -> None:
             continue
         _seen_event_keys.add(key)
         _state.events_seen += 1
+        _state.unread_events += 1
         _state.events.append(classified)
         action = await _maybe_act(classified)
         if action:

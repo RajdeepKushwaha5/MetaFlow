@@ -18,7 +18,7 @@ import {
   FileCode2,
   Tag,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   OpenMetadataLogo,
   GitHubLogo,
@@ -29,6 +29,7 @@ import {
   EmailLogo,
 } from "./PlatformLogos";
 import MiniFlow from "./MiniFlow";
+import { fetchEfficiency } from "../lib/api";
 
 interface Props {
   onNavigateChat: () => void;
@@ -38,7 +39,7 @@ const STATS = [
   { value: "12", label: "AI Agents" },
   { value: "7", label: "Platforms" },
   { value: "13", label: "Playbooks" },
-  { value: "17", label: "API Routes" },
+  { value: "43", label: "API Routes" },
 ];
 
 const PLATFORMS = [
@@ -239,6 +240,13 @@ function HowItWorksFlow({ onNavigateChat }: Readonly<{ onNavigateChat: () => voi
 }
 
 export default function AboutPage({ onNavigateChat }: Props) {
+  const [tokensSaved, setTokensSaved] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetchEfficiency()
+      .then((e) => setTokensSaved(e.tokens_avoided))
+      .catch(() => {});
+  }, []);
   return (
     <div className="h-full overflow-y-auto">
       {/* Hero */}
@@ -287,7 +295,7 @@ export default function AboutPage({ onNavigateChat }: Props) {
 
       {/* Stats strip */}
       <section className="border-y border-white/[0.04] py-8 md:py-12 px-4 md:px-6 accent-line relative">
-        <div className="max-w-3xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8">
+        <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-4 md:gap-8">
           {STATS.map((s, i) => (
             <div
               key={s.label}
@@ -301,6 +309,15 @@ export default function AboutPage({ onNavigateChat }: Props) {
               </div>
             </div>
           ))}
+          {/* Live token efficiency counter */}
+          <div className="text-center animate-fade-up delay-5">
+            <div className="text-3xl md:text-4xl font-bold font-display gradient-text-subtle">
+              {tokensSaved !== null ? `${(tokensSaved / 1000).toFixed(1)}k` : "—"}
+            </div>
+            <div className="mt-2 text-[11px] text-zinc-500 uppercase tracking-[0.18em] font-semibold">
+              Tokens Saved
+            </div>
+          </div>
         </div>
       </section>
 

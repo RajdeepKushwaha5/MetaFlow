@@ -17,6 +17,7 @@ import {
   Shield,
   Database,
   BarChart3,
+  RotateCcw,
 } from "lucide-react";
 import { fetchRecommendations, createTestCase } from "../lib/api";
 import type { DqRecommendation, DqRecommendationList } from "../lib/types";
@@ -51,25 +52,37 @@ export default function TestRecommender({
   const [created, setCreated] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<DqRecommendation | null>(null);
   const [creating, setCreating] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async (target: string) => {
+    const normalized = target.trim() || initialTableFqn;
     setLoading(true);
     setError(null);
+    setNotice(null);
     setDismissed(new Set());
     setCreated({});
     try {
-      const d = await fetchRecommendations(target);
+      const d = await fetchRecommendations(normalized);
       setData(d);
+      setInput(normalized);
+      setTableFqn(normalized);
+      setNotice(`Found ${d.recommendations.length} recommendation(s) for ${normalized}.`);
     } catch (e) {
+      setData(null);
       setError(e instanceof Error ? e.message : "Failed to load recommendations");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [initialTableFqn]);
 
   useEffect(() => {
-    load(tableFqn);
-  }, [tableFqn, load]);
+    load(initialTableFqn);
+  }, [initialTableFqn, load]);
+
+  const handleAnalyze = useCallback(() => {
+    const target = input.trim() || initialTableFqn;
+    void load(target);
+  }, [initialTableFqn, input, load]);
 
   // Close preview modal on Escape
   useEffect(() => {
@@ -82,28 +95,45 @@ export default function TestRecommender({
   }, [preview]);
 
   const handleApprove = async (rec: DqRecommendation) => {
+    const targetTable = data?.table_fqn || tableFqn;
     setCreating(rec.id);
+    setNotice(null);
     try {
-      const result = await createTestCase(tableFqn, rec);
+      const result = await createTestCase(targetTable, rec);
+      const testName =
+        typeof result.test_case?.name === "string"
+          ? result.test_case.name
+          : typeof result.preview?.name === "string"
+            ? result.preview.name
+            : rec.test_type;
       setCreated((prev) => ({
         ...prev,
         [rec.id]: result.created
-          ? "Created in OpenMetadata"
+          ? `Created in OpenMetadata: ${testName}`
           : result.demo
-            ? "Demo: preview ready"
-            : "Saved",
+            ? result.message || "Preview ready"
+            : result.message || "Request completed",
       }));
+      setNotice(result.created ? `Created ${testName} in OpenMetadata.` : result.message || "Request completed.");
+      if (preview?.id === rec.id) setPreview(null);
     } catch (e) {
-      setCreated((prev) => ({
-        ...prev,
-        [rec.id]: `Failed: ${e instanceof Error ? e.message : "unknown"}`,
-      }));
+      const message = `Failed: ${e instanceof Error ? e.message : "unknown"}`;
+      setCreated((prev) => ({ ...prev, [rec.id]: message }));
+      setNotice(message);
     } finally {
       setCreating(null);
     }
   };
 
-  const handleDismiss = (id: string) => setDismissed((prev) => new Set(prev).add(id));
+  const handleDismiss = (rec: DqRecommendation) => {
+    setDismissed((prev) => new Set(prev).add(rec.id));
+    setNotice(`Dismissed ${rec.test_type}${rec.column ? ` on ${rec.column}` : ""}.`);
+  };
+
+  const undoDismissed = () => {
+    setDismissed(new Set());
+    setNotice("Restored dismissed recommendations.");
+  };
 
   const visibleRecs = data?.recommendations.filter((r) => !dismissed.has(r.id)) || [];
 
@@ -113,7 +143,7 @@ export default function TestRecommender({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            setTableFqn(input.trim() || initialTableFqn);
+            handleAnalyze();
           }}
           className="flex items-center gap-2 flex-1"
         >
@@ -128,9 +158,17 @@ export default function TestRecommender({
           </div>
           <button
             type="submit"
-            className="px-4 py-2 text-sm font-medium bg-brand-500/20 hover:bg-brand-500/30 text-brand-300 border border-brand-500/30 rounded-lg transition"
+            disabled={loading}
+            className="px-4 py-2 text-sm font-medium bg-brand-500/20 hover:bg-brand-500/30 disabled:opacity-60 text-brand-300 border border-brand-500/30 rounded-lg transition"
           >
-            Analyze
+            {loading ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 size={14} className="animate-spin" />
+                Analyzing
+              </span>
+            ) : (
+              "Analyze"
+            )}
           </button>
         </form>
         {data?.demo && (
@@ -157,17 +195,35 @@ export default function TestRecommender({
         )}
         {data && !loading && (
           <div className="max-w-5xl mx-auto">
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-10 h-10 rounded-lg bg-brand-500/15 flex items-center justify-center">
-                <Sparkles size={18} className="text-brand-400" />
+            <div className="flex items-center justify-between gap-3 mb-5">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-lg bg-brand-500/15 flex items-center justify-center">
+                  <Sparkles size={18} className="text-brand-400" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-lg font-bold text-zinc-100">
+                    {visibleRecs.length} test suggestions
+                  </h2>
+                  <p className="text-xs text-zinc-500 break-all">{data.table_fqn}</p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-lg font-bold text-zinc-100">
-                  {visibleRecs.length} test suggestions
-                </h2>
-                <p className="text-xs text-zinc-500 break-all">{data.table_fqn}</p>
-              </div>
+              {dismissed.size > 0 && (
+                <button
+                  type="button"
+                  onClick={undoDismissed}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[11px] font-medium text-zinc-300 hover:bg-white/[0.08]"
+                >
+                  <RotateCcw size={12} />
+                  Restore dismissed ({dismissed.size})
+                </button>
+              )}
             </div>
+
+            {notice && (
+              <div className="mb-4 rounded-lg border border-brand-500/25 bg-brand-500/10 px-3 py-2 text-xs text-brand-200">
+                {notice}
+              </div>
+            )}
 
             {visibleRecs.length === 0 ? (
               <div className="text-center py-12 text-zinc-500 text-sm">
@@ -182,7 +238,7 @@ export default function TestRecommender({
                     createdMessage={created[rec.id]}
                     isCreating={creating === rec.id}
                     onApprove={() => handleApprove(rec)}
-                    onDismiss={() => handleDismiss(rec.id)}
+                    onDismiss={() => handleDismiss(rec)}
                     onPreview={() => setPreview(rec)}
                   />
                 ))}
@@ -231,6 +287,28 @@ export default function TestRecommender({
             <p className="text-[11px] text-zinc-500 mt-3">
               This payload will be POSTed to <code className="text-brand-400">/api/v1/dataQuality/testCases</code>.
             </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                className="rounded border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-white/[0.08]"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApprove(preview)}
+                disabled={creating !== null || Boolean(created[preview.id])}
+                className="inline-flex items-center gap-1.5 rounded border border-brand-500/30 bg-brand-500/20 px-3 py-1.5 text-xs font-medium text-brand-300 hover:bg-brand-500/30 disabled:opacity-60"
+              >
+                {creating === preview.id ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <CheckCircle2 size={12} />
+                )}
+                {created[preview.id] ? "Already created" : "Approve & Create"}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -274,7 +352,9 @@ function RecCard({
           <p className="text-[12px] text-zinc-400 leading-relaxed">{rec.rationale}</p>
           <div className="flex items-center gap-2 mt-3 flex-wrap">
             <button
+              type="button"
               onClick={onPreview}
+              disabled={isCreating}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 border border-white/[0.06] rounded transition"
             >
               <Eye size={12} />
@@ -288,6 +368,7 @@ function RecCard({
             ) : (
               <>
                 <button
+                  type="button"
                   onClick={onApprove}
                   disabled={isCreating}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium bg-brand-500/20 hover:bg-brand-500/30 disabled:opacity-50 text-brand-300 border border-brand-500/30 rounded transition"
@@ -300,7 +381,9 @@ function RecCard({
                   Approve &amp; Create
                 </button>
                 <button
+                  type="button"
                   onClick={onDismiss}
+                  disabled={isCreating}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-zinc-300 transition"
                 >
                   Dismiss

@@ -121,22 +121,32 @@ function CandidateCard({
   );
 }
 
-export default function AutoRemediation() {
-  const [testFqn, setTestFqn] = useState(DEFAULT_TEST);
+interface Props {
+  initialTestFqn?: string;
+}
+
+export default function AutoRemediation({ initialTestFqn = DEFAULT_TEST }: Readonly<Props>) {
+  const [testFqn, setTestFqn] = useState(initialTestFqn);
   const [remediation, setRemediation] = useState<Remediation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dispatching, setDispatching] = useState<"github" | "jira" | null>(null);
   const [dispatchResult, setDispatchResult] = useState<DispatchTicketResult | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async (fqn: string) => {
+    const normalized = fqn.trim() || DEFAULT_TEST;
     setLoading(true);
     setError(null);
+    setNotice(null);
     setDispatchResult(null);
     try {
-      const data = await fetchAutoRemediation(fqn);
+      const data = await fetchAutoRemediation(normalized);
       setRemediation(data);
+      setTestFqn(normalized);
+      setNotice(`Diagnosis complete for ${normalized}.`);
     } catch (e) {
+      setRemediation(null);
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
       setLoading(false);
@@ -144,21 +154,28 @@ export default function AutoRemediation() {
   }, []);
 
   useEffect(() => {
-    load(DEFAULT_TEST);
-  }, [load]);
+    load(initialTestFqn);
+  }, [initialTestFqn, load]);
 
   const handleDispatch = async (target: "github" | "jira") => {
     if (!remediation) return;
     setDispatching(target);
     setDispatchResult(null);
+    setNotice(null);
     try {
       const result = await dispatchTicket(remediation, target);
       setDispatchResult(result);
+      setNotice(
+        result.created
+          ? `${target === "github" ? "GitHub issue" : "Jira ticket"} dispatch completed.`
+          : result.error || result.message || "Dispatch request completed."
+      );
     } catch (e) {
       setDispatchResult({
         created: false,
         error: e instanceof Error ? e.message : "Failed to dispatch",
       });
+      setNotice(e instanceof Error ? e.message : "Failed to dispatch");
     } finally {
       setDispatching(null);
     }
@@ -212,6 +229,11 @@ export default function AutoRemediation() {
       {error && (
         <div className="flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">
           <AlertTriangle className="h-4 w-4" /> {error}
+        </div>
+      )}
+      {notice && !error && (
+        <div className="rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+          {notice}
         </div>
       )}
 

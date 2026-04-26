@@ -29,6 +29,7 @@ import {
   fetchStewardDigest,
   startSteward,
   stopSteward,
+  clearStewardUnread,
   fetchAuthStatus,
   refreshAuthToken,
   fetchMetricsScan,
@@ -64,6 +65,7 @@ export default function StewardPage() {
 
   useEffect(() => {
     refreshAll();
+    clearStewardUnread().catch(() => {});   // clear badge when page is opened
     fetchMetricsScan(100).then(setScan).catch(() => {});
     const t = setInterval(refreshAll, 15000);
     return () => clearInterval(t);

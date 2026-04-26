@@ -72,24 +72,37 @@ export default function ImpactRadar({
   const [data, setData] = useState<ImpactGraph | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [selected, setSelected] = useState<ImpactNode | null>(null);
 
   const load = useCallback(async (target: string) => {
+    const normalized = target.trim() || initialFqn;
     setLoading(true);
     setError(null);
+    setNotice(null);
+    setSelected(null);
     try {
-      const g = await fetchImpact(target);
+      const g = await fetchImpact(normalized);
       setData(g);
+      setFqn(normalized);
+      setInput(normalized);
+      setNotice(`Impact scan complete for ${normalized}.`);
     } catch (e) {
+      setData(null);
       setError(e instanceof Error ? e.message : "Failed to load impact");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [initialFqn]);
 
   useEffect(() => {
-    load(fqn);
-  }, [fqn, load]);
+    load(initialFqn);
+  }, [initialFqn, load]);
+
+  const handleScan = useCallback(() => {
+    const target = input.trim() || initialFqn;
+    void load(target);
+  }, [initialFqn, input, load]);
 
   const { nodes, edges } = useMemo<{ nodes: Node[]; edges: Edge[] }>(() => {
     if (!data) return { nodes: [], edges: [] };
@@ -170,7 +183,7 @@ export default function ImpactRadar({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            setFqn(input.trim() || initialFqn);
+            handleScan();
           }}
           className="flex items-center gap-2 flex-1"
         >
@@ -185,9 +198,17 @@ export default function ImpactRadar({
           </div>
           <button
             type="submit"
-            className="px-4 py-2 text-sm font-medium bg-brand-500/20 hover:bg-brand-500/30 text-brand-300 border border-brand-500/30 rounded-lg transition"
+            disabled={loading}
+            className="px-4 py-2 text-sm font-medium bg-brand-500/20 hover:bg-brand-500/30 disabled:opacity-60 text-brand-300 border border-brand-500/30 rounded-lg transition"
           >
-            Scan
+            {loading ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 size={14} className="animate-spin" />
+                Scanning
+              </span>
+            ) : (
+              "Scan"
+            )}
           </button>
         </form>
 
@@ -206,6 +227,11 @@ export default function ImpactRadar({
           </div>
         )}
       </div>
+      {notice && !error && (
+        <div className="px-4 md:px-6 py-2 border-b border-white/[0.04] text-xs text-brand-200 bg-brand-500/10">
+          {notice}
+        </div>
+      )}
 
       {/* Main area: graph + side panel */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">

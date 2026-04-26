@@ -75,14 +75,18 @@ const STATUS_COLORS: Record<string, string> = {
 
 function GateRow({ gate }: { readonly gate: ContractQualityGate }) {
   return (
-    <div className="flex items-center justify-between rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-xs">
-      <div className="flex items-center gap-3">
-        <span className="font-mono text-slate-300">{gate.name}</span>
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-xs">
+      <div className="grid min-w-0 grid-cols-[minmax(7rem,1fr)_auto_minmax(8rem,1.1fr)] items-center gap-2">
+        <span className="truncate font-mono text-slate-300" title={gate.name}>
+          {gate.name}
+        </span>
         <span className="text-slate-500">→</span>
-        <span className="text-slate-300">{gate.test}</span>
+        <span className="truncate text-slate-300" title={gate.test}>
+          {gate.test}
+        </span>
       </div>
       <span
-        className={`rounded border px-1.5 py-0.5 uppercase tracking-wide ${SEVERITY_COLORS[gate.severity] ?? SEVERITY_COLORS.minor}`}
+        className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${SEVERITY_COLORS[gate.severity] ?? SEVERITY_COLORS.minor}`}
       >
         {gate.severity}
       </span>
@@ -356,7 +360,7 @@ export default function ContractCopilot() {
                 <h3 className="text-sm font-semibold text-zinc-200">
                   Quality gates ({contract.contract.quality_gates.length})
                 </h3>
-                <div className="space-y-1.5 max-h-[260px] overflow-auto">
+                <div className="space-y-1.5 max-h-[260px] overflow-auto pr-1">
                   {contract.contract.quality_gates.map((g) => (
                     <GateRow key={g.name} gate={g} />
                   ))}

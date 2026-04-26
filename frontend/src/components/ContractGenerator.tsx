@@ -7,6 +7,7 @@ import {
   FileText,
   GitBranch,
   Loader2,
+  RefreshCw,
   Send,
   Shield,
   Sparkles,
@@ -42,15 +43,26 @@ const SEVERITY_COLORS: Record<string, string> = {
   minor: "bg-slate-500/15 text-slate-300 border-slate-500/40",
 };
 
+function normalizeEntityFqn(value: string) {
+  const trimmed = value.trim().replace(/^[`'"]|[`'"]$/g, "");
+  const withoutPrefix = trimmed.replace(/^(for|table|entity|fqn|contract\s+for|use)\s+/i, "").trim();
+  const candidates = withoutPrefix.match(/[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){2,}/g);
+  return candidates ? candidates[candidates.length - 1] : withoutPrefix;
+}
+
 function QualityGateRow({ gate }: { readonly gate: ContractQualityGate }) {
   return (
-    <div className="flex items-center justify-between rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-xs">
-      <div className="flex items-center gap-3">
-        <span className="font-mono text-slate-300">{gate.name}</span>
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-xs">
+      <div className="grid min-w-0 grid-cols-[minmax(7rem,1fr)_auto_minmax(8rem,1.1fr)] items-center gap-2">
+        <span className="truncate font-mono text-slate-300" title={gate.name}>
+          {gate.name}
+        </span>
         <span className="text-slate-500">→</span>
-        <span className="text-slate-300">{gate.test}</span>
+        <span className="truncate text-slate-300" title={gate.test}>
+          {gate.test}
+        </span>
       </div>
-      <span className={`rounded border px-1.5 py-0.5 uppercase tracking-wide ${SEVERITY_COLORS[gate.severity]}`}>
+      <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${SEVERITY_COLORS[gate.severity]}`}>
         {gate.severity}
       </span>
     </div>
@@ -65,15 +77,21 @@ export default function ContractGenerator() {
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<PublishContractResult | null>(null);
   const [copied, setCopied] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async (fqn: string) => {
+    const normalized = normalizeEntityFqn(fqn) || DEFAULT_ENTITY;
     setLoading(true);
     setError(null);
+    setNotice(null);
     setPublishResult(null);
     try {
-      const data = await fetchContract(fqn);
+      const data = await fetchContract(normalized);
       setResponse(data);
+      setEntityFqn(normalized);
+      setNotice(`Generated contract for ${normalized}.`);
     } catch (e) {
+      setResponse(null);
       setError(e instanceof Error ? e.message : "Failed to load contract");
     } finally {
       setLoading(false);
@@ -89,9 +107,10 @@ export default function ContractGenerator() {
     try {
       await navigator.clipboard.writeText(response.yaml);
       setCopied(true);
+      setNotice("Contract YAML copied to clipboard.");
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // noop
+    } catch (e) {
+      setNotice(`Copy failed: ${e instanceof Error ? e.message : "clipboard unavailable"}`);
     }
   };
 
@@ -99,14 +118,21 @@ export default function ContractGenerator() {
     if (!response) return;
     setPublishing(true);
     setPublishResult(null);
+    setNotice(null);
     try {
       const result = await publishContract(response.entity_fqn, response.contract);
       setPublishResult(result);
+      setNotice(
+        result.message ||
+          (result.published ? "Contract published to OpenMetadata." : "Publish request completed.")
+      );
     } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to publish";
       setPublishResult({
         published: false,
-        message: e instanceof Error ? e.message : "Failed to publish",
+        message,
       });
+      setNotice(message);
     } finally {
       setPublishing(false);
     }
@@ -145,22 +171,28 @@ export default function ContractGenerator() {
         <input
           value={entityFqn}
           onChange={(e) => setEntityFqn(e.target.value)}
+          onBlur={() => setEntityFqn((value) => normalizeEntityFqn(value) || DEFAULT_ENTITY)}
           placeholder="Entity FQN (e.g. sample_db_service.ecommerce_db.shopify.dim_customer)"
           className="flex-1 rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-white/30 focus:outline-none"
         />
         <button
           type="submit"
-          disabled={loading || !entityFqn}
+          disabled={loading || !normalizeEntityFqn(entityFqn)}
           className="flex items-center gap-2 rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50"
         >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          Generate
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : response ? <RefreshCw className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+          {loading ? "Generating" : response ? "Regenerate" : "Generate"}
         </button>
       </form>
 
       {error && (
         <div className="flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">
           <AlertTriangle className="h-4 w-4" /> {error}
+        </div>
+      )}
+      {notice && !error && (
+        <div className="rounded-lg border border-violet-500/25 bg-violet-500/10 px-3 py-2 text-xs text-violet-200">
+          {notice}
         </div>
       )}
 
@@ -248,7 +280,8 @@ export default function ContractGenerator() {
                 <button
                   type="button"
                   onClick={handleCopy}
-                  className="flex items-center gap-1 rounded bg-slate-800 px-2 py-1 text-xs text-slate-200 hover:bg-slate-700"
+                  disabled={!response.yaml}
+                  className="flex items-center gap-1 rounded bg-slate-800 px-2 py-1 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50"
                 >
                   {copied ? <Check className="h-3 w-3" /> : <ClipboardCopy className="h-3 w-3" />}
                   {copied ? "Copied" : "Copy"}
@@ -256,11 +289,11 @@ export default function ContractGenerator() {
                 <button
                   type="button"
                   onClick={handlePublish}
-                  disabled={publishing}
+                  disabled={publishing || !response}
                   className="flex items-center gap-1 rounded bg-violet-500 px-2 py-1 text-xs text-white hover:bg-violet-400 disabled:opacity-50"
                 >
                   {publishing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-                  Push to OpenMetadata
+                  {publishing ? "Pushing" : "Push to OpenMetadata"}
                 </button>
               </div>
             </div>
@@ -280,7 +313,8 @@ export default function ContractGenerator() {
                     <Check className="h-3.5 w-3.5" />
                     <span>
                       {publishResult.demo ? "Staged (demo)" : "Published"} via{" "}
-                      {publishResult.method ?? (publishResult.demo ? "preview" : "API")}.
+                      {publishResult.method ?? (publishResult.demo ? "preview" : "API")}
+                      {publishResult.message ? ` — ${publishResult.message}` : "."}
                     </span>
                   </>
                 ) : (

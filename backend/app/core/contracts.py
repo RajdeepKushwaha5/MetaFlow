@@ -310,12 +310,21 @@ def generate_contract(entity_fqn: str, max_depth: int = 3) -> dict:
             lineage_nodes = {n.get("id"): n for n in lineage.get("nodes", []) if n.get("id")}
             for edge in lineage.get("upstreamEdges", []):
                 from_id = edge.get("fromEntity")
+                # Only follow edges that directly flow INTO the current frontier entity.
+                # Without this guard the OM response can include transitive edges
+                # (A→B→C all in one payload) which would cause non-upstream nodes to
+                # be counted as direct lineage sources.
+                if not from_id or edge.get("toEntity") != tid:
+                    continue
+                if from_id in visited:
+                    continue
                 from_data = edge.get("fromEntityData") or lineage_nodes.get(from_id, {})
                 from_fqn = from_data.get("fullyQualifiedName")
-                if from_id and from_fqn and from_id not in visited:
-                    visited.add(from_id)
-                    upstream_fqns.append(from_fqn)
-                    next_frontier.append((from_id, depth + 1))
+                if not from_fqn:
+                    continue
+                visited.add(from_id)
+                upstream_fqns.append(from_fqn)
+                next_frontier.append((from_id, depth + 1))
         frontier = next_frontier
 
     # Build schema from target columns (enriched by upstream profiles where possible)
@@ -775,7 +784,7 @@ def get_contract_status(entity_fqn: str) -> dict:
                     }
         return {
             "entity_fqn": entity_fqn,
-            "status": "None",
+            "status": "Not Found",
             "message": "No Data Contract is currently attached to this entity.",
         }
     contract = listing["data"][0]

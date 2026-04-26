@@ -33,7 +33,7 @@ import GovernancePage from "./components/GovernancePage";
 import PersonasPage from "./components/PersonasPage";
 import StewardPage from "./components/StewardPage";
 import type { PlaybookInfo } from "./lib/types";
-import { fetchSettings } from "./lib/api";
+import { fetchSettings, fetchStewardState } from "./lib/api";
 
 type View =
   | "about"
@@ -78,6 +78,7 @@ export default function App() {
   });
   const [resumeThreadId, setResumeThreadId] = useState<string | null>(null);
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
+  const [unreadEvents, setUnreadEvents] = useState(0);
 
   useEffect(() => {
     try { window.localStorage.setItem("mf.sidebarOpen", sidebarOpen ? "1" : "0"); } catch { /* ignore */ }
@@ -103,6 +104,18 @@ export default function App() {
     };
     const interval = setInterval(check, 30000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Poll steward state for unread-events badge
+  useEffect(() => {
+    const poll = () => {
+      fetchStewardState()
+        .then((s) => setUnreadEvents((s.unread_events as number) ?? 0))
+        .catch(() => {/* ignore */});
+    };
+    poll();
+    const id = setInterval(poll, 15000);
+    return () => clearInterval(id);
   }, []);
 
   // Keyboard shortcuts
@@ -230,7 +243,15 @@ export default function App() {
                 <Icon size={15} />
               </div>
               <span className="relative font-medium">{label}</span>
-              {isActive(v) && (
+              {v === "steward" && unreadEvents > 0 && (
+                <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white animate-pulse">
+                  {unreadEvents > 9 ? "9+" : unreadEvents}
+                </span>
+              )}
+              {isActive(v) && v !== "steward" && (
+                <ChevronRight size={14} className="ml-auto text-brand-400/70" />
+              )}
+              {isActive(v) && v === "steward" && unreadEvents === 0 && (
                 <ChevronRight size={14} className="ml-auto text-brand-400/70" />
               )}
             </button>

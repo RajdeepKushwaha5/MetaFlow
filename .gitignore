@@ -49,8 +49,12 @@ demo_*.txt
 METAFLOW_FINAL_DEMO_SCRIPT.txt
 PRODUCTION_FEATURE_TEST_STEPS.txt
 TESTING_PLAN.md
+HACKATHON_WINNING_SCRIPT.txt
+DEMO_TESTING_GUIDE.md
 backend/test_publish*.py
+backend/verify_features.py
 smoke_test.ps1
 test_all.ps1
 docker-compose.dev.yml
 docker-compose.sandbox.yml
+om-docker-compose.yml

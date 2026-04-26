@@ -52,8 +52,10 @@ from app.core.governance import (
     write_health_score,
 )
 from app.core.steward import (
+    clear_unread_events,
     get_steward_digest,
     get_steward_state,
+    record_webhook_event,
     start_steward,
     stop_steward,
 )
@@ -371,6 +373,13 @@ async def webhook_listener(request: Request, background_tasks: BackgroundTasks):
 
     if isinstance(change_desc, dict):
         change_desc = json.dumps(change_desc)
+
+    # Always bump the steward unread counter so the UI badge fires immediately.
+    record_webhook_event(
+        entity_fqn or entity_type,
+        event_type,
+        f"{event_type} on {entity_fqn or entity_type}",
+    )
 
     if _orchestrator is None:
         from fastapi.responses import JSONResponse
@@ -822,6 +831,12 @@ async def api_steward_start():
 async def api_steward_stop():
     """Stop the steward background loop."""
     return await stop_steward()
+
+
+@app.post("/api/steward/clear-unread")
+async def api_steward_clear_unread():
+    """Acknowledge all unread events — called when the user opens the Steward page."""
+    return clear_unread_events()
 
 
 # ---------------------------------------------------------------------------
